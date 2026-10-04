@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+Junk_Candidates/
+Uncertain/
+Financial/
+Documents/
+Code_and_Logs/
+Media/
+Archives_and_Installers/
+Other/
+*.egg-info/
+.ds_store
