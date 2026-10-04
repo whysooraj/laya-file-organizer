@@ -1,4 +1,4 @@
-# ⚡ Laya Auto File Organizer
+# Laya Auto File Organizer
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Laya Engine](https://img.shields.io/badge/Powered%20By-Laya-orange.svg)](https://github.com/NandhaKishorM/laya)
@@ -8,18 +8,18 @@ An ultra-fast, intelligent file organizer powered by **[Laya](https://github.com
 
 ---
 
-## ✨ Features
+## Features
 
-- **⚡ Sub-35ms Local Decision Speed**: Evaluates file names, extensions, and snippets in a single forward pass.
-- **🎯 Typed Classification**: Categorizes files into `Financial`, `Documents`, `Code_and_Logs`, `Media`, `Archives_and_Installers`, or `Other`.
-- **🗑️ Junk Detection**: Identifies temporary scrap files and moves them to `Junk_Candidates/`.
-- **🛡️ Confidence Thresholding**: Low-confidence predictions (`< 0.50`) fall back safely to `Uncertain/`.
-- **🔍 Dry-Run Mode**: Preview sorting actions without moving any files.
-- **🔒 100% Privacy & Offline**: Runs entirely on your CPU/GPU with zero cloud data transmission.
+- **Sub-35ms Local Decision Speed**: Evaluates file names, extensions, and snippets in a single forward pass.
+- **Typed Classification**: Categorizes files into `Financial`, `Documents`, `Code_and_Logs`, `Media`, `Archives_and_Installers`, or `Other`.
+- **Junk Detection**: Identifies temporary scrap files and moves them to `Junk_Candidates/`.
+- **Confidence Thresholding**: Low-confidence predictions (`< 0.50`) fall back safely to `Uncertain/`.
+- **Dry-Run Mode**: Preview sorting actions without moving any files.
+- **100% Privacy & Offline**: Runs entirely on your CPU/GPU with zero cloud data transmission.
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 ### 1. Installation
 
@@ -53,7 +53,7 @@ python3 laya_organizer.py --check
 
 ---
 
-## 🏗️ How It Works
+## How It Works
 
 1. **Context Extraction**: Reads filename, extension, file size, and the first 1KB text snippet.
 2. **Laya System 1 Pass**: Executes a single non-autoregressive forward pass querying:
@@ -63,6 +63,6 @@ python3 laya_organizer.py --check
 
 ---
 
-## 📄 License
+## License
 
 Licensed under the [Apache 2.0 License](LICENSE).
