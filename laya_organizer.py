@@ -2,6 +2,7 @@
 """
 Laya Auto File Organizer
 Organizes files into smart categories using Laya sub-35ms decision engine.
+Automatically creates target folders and moves files safely.
 """
 
 import os
@@ -17,7 +18,13 @@ def extract_file_sample(file_path: Path, max_chars: int = 1000) -> str:
     ext = file_path.suffix.lower()
     info = f"Filename: {file_path.name}\nExtension: {ext}\nSize: {file_path.stat().st_size} bytes\n"
     
-    if ext in {".txt", ".md", ".json", ".csv", ".py", ".js", ".ts", ".html", ".css", ".log", ".yaml", ".yml", ".sh", ".sql"}:
+    text_exts = {
+        ".txt", ".md", ".json", ".csv", ".tsv", ".py", ".js", ".ts", ".jsx", ".tsx", 
+        ".rs", ".go", ".cpp", ".c", ".h", ".java", ".html", ".css", ".log", ".yaml", 
+        ".yml", ".sh", ".sql", ".xml", ".toml", ".env", ".ini", ".conf"
+    }
+    
+    if ext in text_exts:
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                 snippet = f.read(max_chars)
@@ -32,11 +39,17 @@ def get_laya_questions() -> Dict[str, Any]:
             "type": "choice",
             "instructions": "Which folder category should this file be organized into?",
             "criteria": {
-                "Financial": "invoices, receipts, tax documents, bank statements, billing, payments",
-                "Documents": "resumes, CVs, contracts, letters, notes, reports, PDFs, books",
-                "Code_and_Logs": "source code, scripts, configs, JSON, CSV datasets, system log files",
-                "Media": "images, photos, vectors, audio, music, video files",
-                "Archives_and_Installers": "zip, tar, gz, iso, deb, AppImage, installers, compressed archives",
+                "Financial": "invoices, receipts, tax documents, bank statements, billing, paystubs, financial reports",
+                "Documents": "resumes, CVs, contracts, letters, notes, reports, PDFs, academic papers, articles",
+                "Code_and_Scripts": "source code files, Python, JavaScript, TypeScript, Rust, C++, Go, HTML, CSS, Shell scripts, SQL",
+                "Data_and_Configs": "JSON, CSV, TSV, YAML, TOML, XML, env configuration files, database dumps",
+                "Logs_and_Diagnostics": "system log files, crash dumps, build logs, debug traces, stack traces",
+                "Images_and_Graphics": "PNG, JPG, JPEG, SVG, WebP, GIF, PSD, AI, Figma exports, screenshots",
+                "Audio_and_Music": "MP3, WAV, FLAC, AAC, OGG, M4A, podcasts, voice recordings, music tracks",
+                "Video_and_Movies": "MP4, MKV, AVI, MOV, WebM, screen recordings, video clips, movies",
+                "Archives_and_Installers": "ZIP, TAR, GZ, 7Z, RAR, ISO, DEB, RPM, AppImage, EXE, DMG, software installers",
+                "Books_and_Manuals": "EPUB, MOBI, AZW3, user manuals, technical documentation PDFs, ebooks",
+                "Design_and_3D": "STL, OBJ, BLEND, STEP, CAD drawings, 3D models, graphics projects",
                 "Other": "everything else that does not clearly fit above"
             }
         },
@@ -65,7 +78,7 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
         print("No files found to organize.")
         return
 
-    print(f"Found {len(files)} files in '{target_path}'. Sorting...")
+    print(f"Found {len(files)} files in '{target_path}'. Sorting into categories...")
     
     stats = {}
     for file_path in files:
@@ -90,6 +103,7 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
         print(f"[{category}] (conf: {confidence:.2f}) {file_path.name} -> {target_folder}/")
         
         if not dry_run:
+            # ponytail: auto-create target directory if it does not exist
             target_folder.mkdir(parents=True, exist_ok=True)
             if dest_file_path.exists() and dest_file_path != file_path:
                 dest_file_path = target_folder / f"{file_path.stem}_dup{file_path.suffix}"
@@ -100,15 +114,21 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
         print(f"  - {cat}: {count} files")
 
 def self_check():
-    """ponytail: minimal runnable test for laya decision logic"""
+    """ponytail: minimal runnable test for expanded laya decision logic"""
     from laya import Router
     router = Router()
     q = get_laya_questions()
     
-    sample = "Filename: invoice_2026_march.pdf\nExtension: .pdf\nContent Snippet: Invoice #402. Total amount due $450.00"
-    res = router.predict(sample, q)
-    assert res["answers"]["category"]["choice"] == "Financial", f"Expected Financial, got {res['answers']['category']['choice']}"
-    print("Self-check passed: Financial invoice classified correctly!")
+    samples = [
+        ("Filename: invoice_2026_march.pdf\nExtension: .pdf\nContent Snippet: Invoice #402. Total amount due $450.00", "Financial"),
+        ("Filename: main.rs\nExtension: .rs\nContent Snippet: fn main() { println!(\"Hello\"); }", "Code_and_Scripts"),
+        ("Filename: config.yaml\nExtension: .yaml\nContent Snippet: server:\n  port: 8080", "Data_and_Configs"),
+    ]
+    for sample, expected in samples:
+        res = router.predict(sample, q)
+        got = res["answers"]["category"]["choice"]
+        assert got == expected, f"Expected {expected}, got {got}"
+    print("Self-check passed: All expanded categories classified correctly!")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Laya Sub-35ms Auto File Organizer")

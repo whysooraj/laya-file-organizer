@@ -11,7 +11,7 @@ An ultra-fast, intelligent file organizer powered by **[Laya](https://github.com
 ## Features
 
 - **Sub-35ms Local Decision Speed**: Evaluates file names, extensions, and snippets in a single forward pass.
-- **Typed Classification**: Categorizes files into `Financial`, `Documents`, `Code_and_Logs`, `Media`, `Archives_and_Installers`, or `Other`.
+- **Typed Classification**: Categorizes files into 12 categories (`Financial`, `Documents`, `Code_and_Scripts`, `Data_and_Configs`, `Logs_and_Diagnostics`, `Images_and_Graphics`, `Audio_and_Music`, `Video_and_Movies`, `Archives_and_Installers`, `Books_and_Manuals`, `Design_and_3D`, `Other`).
 - **Junk Detection**: Identifies temporary scrap files and moves them to `Junk_Candidates/`.
 - **Confidence Thresholding**: Low-confidence predictions (`< 0.50`) fall back safely to `Uncertain/`.
 - **Dry-Run Mode**: Preview sorting actions without moving any files.
