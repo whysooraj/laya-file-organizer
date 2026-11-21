@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <rect width="128" height="128" rx="28" fill="#4d6b53"/>
+  <!-- Cream Folder Silhouette with clean angled tab -->
+  <path d="M26 38 H54 L66 48 H102 C104 48 106 50 106 52 V88 C106 90.2 104 92 102 92 H26 C24 92 22 90.2 22 88 V42 C22 39.8 24 38 26 38 Z" fill="#f5f5f0"/>
+  <!-- Terracotta Checkmark -->
+  <path d="M46 66 L59 78 L84 50" fill="none" stroke="#c2673d" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

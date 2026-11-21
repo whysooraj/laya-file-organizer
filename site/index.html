@@ -5,49 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Laya — Smart Local File Organizer</title>
   <meta name="description" content="Laya sorts files into meaningful folders using a lightweight local decision engine. Preview changes before anything moves. 100% offline, zero cloud uploads.">
-  <meta property="og:title" content="Laya — Smart Local File Organizer">
-  <meta property="og:description" content="Your Downloads folder deserves better. Organize files locally in sub-35ms passes with zero cloud upload and collision-safe moves.">
-  <meta property="og:type" content="website">
-  <meta name="theme-color" content="#0d0f14">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-base: #0a0c10;
-      --bg-surface: #11141a;
-      --bg-surface-elevated: #161a22;
-      --bg-surface-active: #1d222d;
-      --border-subtle: #1e2430;
-      --border-strong: #2d3545;
-      --border-highlight: #3b465c;
-      
-      --accent-blue: #0a84ff;
-      --accent-blue-hover: #0071e3;
-      --accent-blue-glow: rgba(10, 132, 255, 0.15);
-      --accent-emerald: #10b981;
-      --accent-emerald-soft: rgba(16, 185, 129, 0.12);
-      --accent-amber: #f59e0b;
-      --accent-amber-soft: rgba(245, 158, 11, 0.12);
-      --accent-folder: #f5a623;
-      
-      --text-primary: #f8fafc;
-      --text-secondary: #94a3b8;
-      --text-tertiary: #64748b;
-      --text-dim: #475569;
-      
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --bg: #141715;
+      --bg-subtle: #1a1e1b;
+      --bg-surface: #202622;
+      --bg-surface-hover: #262e29;
+      --border: #2c3630;
+      --border-subtle: #222a25;
+      --border-focus: #52795d;
+      --text: #f5f6f4;
+      --text-muted: #9ba89f;
+      --text-dim: #6d7b71;
+      --sage: #52795d;
+      --sage-bright: #689876;
+      --sage-subtle: rgba(82, 121, 93, 0.16);
+      --cream: #f5f5f0;
+      --terracotta: #c2673d;
+      --terracotta-subtle: rgba(194, 103, 61, 0.15);
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       --font-mono: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 14px;
-      --radius-xl: 20px;
-      
-      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
-      --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.5);
-      --shadow-window: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border-subtle);
+      --max-w: 1140px;
+      --radius: 8px;
     }
 
     * {
@@ -57,1785 +40,704 @@
     }
 
     html {
-      scroll-behavior: smooth;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
 
     body {
-      background-color: var(--bg-base);
-      color: var(--text-primary);
-      font-family: var(--font-sans);
-      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
       overflow-x: hidden;
     }
 
-    /* Container */
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
     .container {
       width: 100%;
-      max-width: 1180px;
+      max-width: var(--max-w);
       margin: 0 auto;
       padding: 0 24px;
     }
 
-    /* Header Navigation */
-    .site-header {
+    /* Header & Navigation */
+    header {
       position: sticky;
       top: 0;
-      z-index: 100;
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      background: rgba(10, 12, 16, 0.82);
+      z-index: 50;
+      background: rgba(20, 23, 21, 0.94);
+      backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border-subtle);
-      transition: border-color 0.2s ease;
     }
 
     .nav-inner {
+      height: 64px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      height: 64px;
     }
 
-    .brand-group {
+    .brand {
       display: flex;
       align-items: center;
       gap: 12px;
-      text-decoration: none;
-      color: inherit;
+      font-weight: 700;
+      font-size: 17px;
+      letter-spacing: -0.01em;
     }
 
     .brand-icon {
       width: 32px;
       height: 32px;
-      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--accent-blue);
-    }
-
-    .brand-name {
-      font-weight: 700;
-      font-size: 17px;
-      letter-spacing: -0.02em;
-      color: var(--text-primary);
-    }
-
-    .version-pill {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 500;
-      padding: 2px 7px;
-      border-radius: 9999px;
-      background: var(--bg-surface-elevated);
-      color: var(--text-secondary);
-      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      display: block;
     }
 
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 28px;
-      list-style: none;
-    }
-
-    .nav-link {
+      gap: 24px;
       font-size: 14px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      text-decoration: none;
-      transition: color 0.15s ease;
+      color: var(--text-muted);
     }
 
-    .nav-link:hover {
-      color: var(--text-primary);
+    .nav-links a:hover {
+      color: var(--text);
     }
 
-    .nav-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .btn {
+    .status-badge {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      gap: 8px;
-      font-size: 13px;
-      font-weight: 600;
-      padding: 8px 16px;
-      border-radius: var(--radius-sm);
-      text-decoration: none;
-      transition: all 0.15s ease;
-      cursor: pointer;
-      border: none;
-      white-space: nowrap;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      background: var(--sage-subtle);
+      color: var(--sage-bright);
+      border: 1px solid rgba(82, 121, 93, 0.3);
     }
 
-    .btn-subtle {
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--sage-bright);
+    }
+
+    .btn-github {
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
       background: var(--bg-surface);
-      color: var(--text-secondary);
-      border: 1px solid var(--border-subtle);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
     }
 
-    .btn-subtle:hover {
-      background: var(--bg-surface-elevated);
-      color: var(--text-primary);
-      border-color: var(--border-strong);
-    }
-
-    .btn-primary {
-      background: var(--accent-blue);
-      color: #ffffff;
-      box-shadow: 0 1px 3px rgba(10, 132, 255, 0.3);
-    }
-
-    .btn-primary:hover {
-      background: var(--accent-blue-hover);
-      box-shadow: 0 2px 8px rgba(10, 132, 255, 0.45);
+    .btn-github:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border-focus);
     }
 
     /* Hero Section */
-    .hero-section {
-      padding: 72px 0 60px 0;
-      position: relative;
+    .hero {
+      padding: 80px 0 64px;
+      border-bottom: 1px solid var(--border-subtle);
     }
 
-    .hero-content {
-      text-align: center;
-      max-width: 820px;
-      margin: 0 auto 48px auto;
-    }
-
-    .hero-tag {
+    .hero-eyebrow {
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      font-family: var(--font-mono);
       font-size: 12px;
-      font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
-      padding: 5px 12px;
-      border-radius: 9999px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      color: var(--text-secondary);
-      margin-bottom: 24px;
-    }
-
-    .pulse-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--accent-emerald);
-      box-shadow: 0 0 0 3px var(--accent-emerald-soft);
-    }
-
-    .hero-title {
-      font-size: clamp(38px, 5.5vw, 62px);
-      font-weight: 700;
-      line-height: 1.1;
-      letter-spacing: -0.035em;
-      color: var(--text-primary);
+      letter-spacing: 0.08em;
+      color: var(--terracotta);
       margin-bottom: 20px;
     }
 
-    .hero-subtitle {
-      font-size: clamp(17px, 2.2vw, 20px);
-      line-height: 1.55;
-      color: var(--text-secondary);
-      font-weight: 400;
-      max-width: 680px;
-      margin: 0 auto 36px auto;
+    .hero h1 {
+      font-size: 46px;
+      line-height: 1.15;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      max-width: 820px;
+      margin-bottom: 20px;
     }
 
-    .hero-cta-group {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 14px;
+    .hero p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 720px;
+      line-height: 1.6;
       margin-bottom: 32px;
     }
 
-    .install-bar {
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: 6px;
+      background: var(--sage);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover {
+      background: var(--sage-bright);
+    }
+
+    .quick-command {
       display: inline-flex;
       align-items: center;
       gap: 12px;
+      padding: 10px 16px;
       background: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      border-radius: 6px;
       font-family: var(--font-mono);
       font-size: 13px;
-      color: var(--text-primary);
-      cursor: pointer;
-      user-select: all;
-      transition: border-color 0.15s ease, background-color 0.15s ease;
+      color: var(--text);
     }
 
-    .install-bar:hover {
-      border-color: var(--border-highlight);
-      background: var(--bg-surface-elevated);
+    .quick-command code {
+      color: var(--cream);
     }
 
-    .install-cmd {
-      color: var(--text-primary);
-    }
-
-    .install-cmd .prefix {
-      color: var(--text-dim);
-      user-select: none;
-      margin-right: 4px;
-    }
-
-    .copy-btn {
+    .btn-copy {
       background: transparent;
       border: none;
-      color: var(--text-secondary);
+      color: var(--text-muted);
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 4px;
-      border-radius: 4px;
-      transition: color 0.15s ease;
-    }
-
-    .copy-btn:hover {
-      color: var(--text-primary);
-    }
-
-    .hero-guarantees {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 24px;
       font-size: 12px;
-      color: var(--text-secondary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.15s;
     }
 
-    .guarantee-item {
+    .btn-copy:hover {
+      color: var(--text);
+    }
+
+    /* Before / After Interactive Downloads Transformation */
+    .showcase-box {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-top: 24px;
+    }
+
+    .showcase-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
       display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .guarantee-item svg {
-      color: var(--accent-emerald);
-      flex-shrink: 0;
-    }
-
-    /* Before / After Transformation Visual */
-    .transformation-container {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xl);
-      padding: 20px;
-      box-shadow: var(--shadow-window);
-      margin-bottom: 80px;
-    }
-
-    .transform-toolbar {
-      display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
+      background: var(--bg-surface);
       flex-wrap: wrap;
-      gap: 16px;
-      padding-bottom: 16px;
-      margin-bottom: 16px;
-      border-bottom: 1px solid var(--border-subtle);
+      gap: 12px;
     }
 
-    .mode-switch-group {
+    .state-toggle {
       display: flex;
-      align-items: center;
-      background: var(--bg-base);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-sm);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 6px;
       padding: 3px;
-      gap: 3px;
     }
 
-    .mode-btn {
-      background: transparent;
-      border: none;
-      color: var(--text-secondary);
-      font-size: 12px;
-      font-weight: 500;
+    .toggle-btn {
       padding: 6px 14px;
       border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .mode-btn.active {
-      background: var(--bg-surface-elevated);
-      color: var(--text-primary);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .transform-meta {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      font-size: 12px;
-      color: var(--text-secondary);
-    }
-
-    .simulate-btn {
-      background: var(--bg-surface-elevated);
-      border: 1px solid var(--border-strong);
-      color: var(--text-primary);
-      font-size: 12px;
-      font-weight: 600;
-      padding: 6px 14px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.15s ease;
-    }
-
-    .simulate-btn:hover {
-      background: var(--border-strong);
-      border-color: var(--border-highlight);
-    }
-
-    /* Finder Window Mockup */
-    .finder-window {
-      background: #0d1017;
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-      position: relative;
-    }
-
-    .finder-titlebar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 18px;
-      background: #131720;
-      border-bottom: 1px solid var(--border-subtle);
-      user-select: none;
-    }
-
-    .window-controls {
-      display: flex;
-      gap: 8px;
-    }
-
-    .ctrl-dot {
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-    }
-    .ctrl-close { background: #ff5f56; border: 1px solid #e0443e; }
-    .ctrl-min { background: #ffbd2e; border: 1px solid #dea123; }
-    .ctrl-max { background: #27c93f; border: 1px solid #1aab29; }
-
-    .finder-path {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .finder-stats-badge {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-tertiary);
-    }
-
-    /* Interactive Comparison Area */
-    .compare-stage {
-      position: relative;
-      min-height: 480px;
-      overflow: hidden;
-      user-select: none;
-    }
-
-    /* Before View (Chaotic) */
-    .state-view {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      padding: 24px;
-      overflow-y: auto;
-    }
-
-    .before-view {
-      background: #0b0e14;
-      z-index: 1;
-    }
-
-    .view-banner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 18px;
-      padding-bottom: 12px;
-      border-bottom: 1px dashed var(--border-subtle);
-    }
-
-    .banner-title {
       font-size: 13px;
+      font-weight: 500;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .toggle-btn.active {
+      background: var(--bg-surface);
+      color: var(--text);
       font-weight: 600;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .showcase-body {
+      padding: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .folder-window {
+      background: #171b18;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .window-header {
+      height: 38px;
+      background: #1e2420;
+      border-bottom: 1px solid var(--border-subtle);
       display: flex;
       align-items: center;
+      padding: 0 12px;
       gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
     }
 
-    .tag-chaotic {
-      background: rgba(239, 68, 68, 0.15);
-      color: #f87171;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 500;
+    .window-dots {
+      display: flex;
+      gap: 6px;
     }
 
-    .tag-organized {
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 500;
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #333d36;
     }
 
-    /* Chaotic Files Grid */
-    .files-jumble-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      gap: 12px;
+    .window-content {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
 
     .file-item {
       display: flex;
       align-items: center;
-      gap: 12px;
-      background: #121620;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #1c211d;
       border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
-    }
-
-    .file-item:hover {
-      border-color: var(--border-strong);
-      background: #171d29;
-      transform: translateY(-1px);
-    }
-
-    .file-badge-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      font-family: var(--font-mono);
-      font-weight: 700;
-      flex-shrink: 0;
-      text-transform: uppercase;
-    }
-
-    .ext-pdf { background: rgba(239, 68, 68, 0.16); color: #f87171; }
-    .ext-dmg { background: rgba(14, 165, 233, 0.16); color: #38bdf8; }
-    .ext-code { background: rgba(59, 130, 246, 0.16); color: #60a5fa; }
-    .ext-img { background: rgba(168, 85, 247, 0.16); color: #c084fc; }
-    .ext-data { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
-    .ext-audio { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
-    .ext-junk { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
-    .ext-cad { background: rgba(236, 72, 153, 0.16); color: #f472b6; }
-
-    .file-meta {
-      overflow: hidden;
-      flex-grow: 1;
+      border-radius: 4px;
+      font-size: 13px;
     }
 
     .file-name {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-primary);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: block;
-    }
-
-    .file-sub {
-      font-size: 11px;
-      color: var(--text-tertiary);
       display: flex;
-      justify-content: space-between;
-      margin-top: 2px;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .ext-pill {
       font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: var(--border);
+      color: var(--text-muted);
     }
 
-    /* After View (Organized Folders) */
-    .after-view {
-      background: #0d1117;
-      z-index: 2;
-      clip-path: inset(0 0 0 50%); /* Split default at 50% */
-      transition: clip-path 0.05s ease;
-    }
-
-    .folders-showcase-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 16px;
-    }
-
-    .folder-card {
-      background: #141923;
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 16px;
-      transition: all 0.2s ease;
-    }
-
-    .folder-card:hover {
-      border-color: var(--border-strong);
-      background: #181e2b;
-    }
-
-    .folder-header {
+    .folder-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
+      padding: 10px 14px;
+      background: #1f2520;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-weight: 500;
     }
 
-    .folder-label-group {
+    .folder-name {
       display: flex;
       align-items: center;
       gap: 10px;
+      color: var(--cream);
     }
 
-    .folder-svg-icon {
-      color: var(--accent-folder);
-      flex-shrink: 0;
-    }
-
-    .folder-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .folder-count-chip {
-      font-size: 11px;
+    .folder-icon {
+      color: var(--terracotta);
       font-family: var(--font-mono);
-      color: var(--text-tertiary);
-      background: #0f131a;
-      padding: 2px 7px;
-      border-radius: 4px;
-      border: 1px solid var(--border-subtle);
-    }
-
-    .folder-file-pills {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .mini-file-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
       font-size: 11px;
-      color: var(--text-secondary);
-      background: rgba(255, 255, 255, 0.02);
-      padding: 5px 8px;
-      border-radius: 4px;
-      border: 1px solid rgba(255, 255, 255, 0.03);
     }
 
-    .mini-file-row .name {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 170px;
-    }
-
-    .mini-file-row .size {
+    .folder-count {
       font-family: var(--font-mono);
-      font-size: 10px;
+      font-size: 11px;
       color: var(--text-dim);
     }
 
-    /* Slider Handle Overlay */
-    .slider-divider {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 50%;
-      width: 2px;
-      background: var(--accent-blue);
-      z-index: 10;
-      pointer-events: none;
-      box-shadow: 0 0 12px rgba(10, 132, 255, 0.6);
-      transform: translateX(-50%);
-    }
-
-    .slider-knob {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 36px;
-      height: 36px;
-      background: #ffffff;
-      color: #0a0c10;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-      cursor: ew-resize;
-      pointer-events: auto;
-      border: 2px solid var(--accent-blue);
-    }
-
-    .slider-range-input {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      opacity: 0;
-      z-index: 15;
-      cursor: ew-resize;
-      margin: 0;
-    }
-
-    /* Feature Sections Common */
-    .section-padding {
-      padding: 96px 0;
-      border-top: 1px solid var(--border-subtle);
-    }
-
-    .section-header {
-      margin-bottom: 48px;
+    /* Section Headers */
+    .section {
+      padding: 80px 0;
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .section-eyebrow {
       font-family: var(--font-mono);
       font-size: 12px;
-      font-weight: 600;
-      color: var(--accent-blue);
       text-transform: uppercase;
       letter-spacing: 0.08em;
+      color: var(--sage-bright);
       margin-bottom: 12px;
     }
 
     .section-title {
-      font-size: clamp(26px, 3.5vw, 36px);
+      font-size: 32px;
       font-weight: 700;
-      line-height: 1.2;
-      letter-spacing: -0.025em;
-      color: var(--text-primary);
-      margin-bottom: 14px;
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
     }
 
     .section-desc {
       font-size: 16px;
-      color: var(--text-secondary);
-      max-width: 640px;
-    }
-
-    /* Interactive Router Sandbox */
-    .router-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xl);
-      padding: 32px;
-      box-shadow: var(--shadow-md);
-    }
-
-    .router-input-wrapper {
-      position: relative;
-      margin-bottom: 24px;
-    }
-
-    .router-input {
-      width: 100%;
-      background: var(--bg-base);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-md);
-      padding: 16px 20px 16px 48px;
-      font-family: var(--font-mono);
-      font-size: 15px;
-      color: var(--text-primary);
-      outline: none;
-      transition: all 0.15s ease;
-    }
-
-    .router-input:focus {
-      border-color: var(--accent-blue);
-      box-shadow: 0 0 0 3px var(--accent-blue-glow);
-    }
-
-    .input-icon-left {
-      position: absolute;
-      top: 50%;
-      left: 18px;
-      transform: translateY(-50%);
-      color: var(--text-tertiary);
-      pointer-events: none;
-    }
-
-    .preset-chips-label {
-      font-size: 12px;
-      color: var(--text-tertiary);
-      margin-bottom: 10px;
-      font-weight: 500;
-    }
-
-    .preset-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 28px;
-    }
-
-    .preset-chip {
-      background: var(--bg-surface-elevated);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-secondary);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      padding: 6px 12px;
-      border-radius: var(--radius-sm);
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .preset-chip:hover, .preset-chip.active {
-      background: var(--bg-surface-active);
-      color: var(--text-primary);
-      border-color: var(--border-strong);
-    }
-
-    /* Router Output Panel */
-    .router-output-box {
-      background: #0d1016;
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-
-    @media (max-width: 768px) {
-      .router-output-box {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .route-target-panel {
-      border-right: 1px solid var(--border-subtle);
-      padding-right: 24px;
-    }
-
-    @media (max-width: 768px) {
-      .route-target-panel {
-        border-right: none;
-        padding-right: 0;
-        border-bottom: 1px solid var(--border-subtle);
-        padding-bottom: 24px;
-      }
-    }
-
-    .route-header-label {
-      font-size: 11px;
-      font-family: var(--font-mono);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-tertiary);
-      margin-bottom: 8px;
-    }
-
-    .target-folder-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text-primary);
-      margin-bottom: 12px;
-    }
-
-    .route-path-preview {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-secondary);
-      background: #141822;
-      padding: 10px 14px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-subtle);
-      word-break: break-all;
-    }
-
-    .route-details-panel {
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-
-    .metric-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 14px;
-    }
-
-    .metric-label {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    .metric-value {
-      font-family: var(--font-mono);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .confidence-meter-bar {
-      height: 6px;
-      background: #1c2230;
-      border-radius: 3px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
-
-    .confidence-fill {
-      height: 100%;
-      background: var(--accent-emerald);
-      border-radius: 3px;
-      transition: width 0.3s ease;
-    }
-
-    .route-reasoning {
-      background: rgba(10, 132, 255, 0.05);
-      border: 1px solid rgba(10, 132, 255, 0.2);
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-      font-size: 13px;
-      color: #93c5fd;
-      line-height: 1.5;
-    }
-
-    /* Dry Run & Safe Move Section */
-    .safety-grid {
-      display: grid;
-      grid-template-columns: 1fr 1.1fr;
-      gap: 36px;
-      align-items: center;
-    }
-
-    @media (max-width: 900px) {
-      .safety-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .safety-features {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .safety-card {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      padding: 20px;
-      display: flex;
-      gap: 16px;
-      transition: border-color 0.15s ease;
-    }
-
-    .safety-card:hover {
-      border-color: var(--border-strong);
-    }
-
-    .safety-icon-wrapper {
-      width: 38px;
-      height: 38px;
-      border-radius: var(--radius-sm);
-      background: var(--bg-surface-elevated);
-      border: 1px solid var(--border-strong);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      color: var(--accent-emerald);
-    }
-
-    .safety-card-title {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 4px;
-    }
-
-    .safety-card-desc {
-      font-size: 13px;
-      color: var(--text-secondary);
-      line-height: 1.5;
-    }
-
-    /* Simulated Terminal */
-    .terminal-box {
-      background: #090c10;
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-lg);
-      overflow: hidden;
-      box-shadow: var(--shadow-lg);
-    }
-
-    .terminal-header {
-      background: #11151c;
-      padding: 10px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border-subtle);
-    }
-
-    .terminal-actions-pills {
-      display: flex;
-      gap: 8px;
-    }
-
-    .term-tab {
-      background: transparent;
-      border: none;
-      color: var(--text-tertiary);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .term-tab.active {
-      background: #1c2230;
-      color: var(--text-primary);
-    }
-
-    .terminal-body {
-      padding: 20px;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      line-height: 1.7;
-      color: var(--text-primary);
-      min-height: 320px;
-      max-height: 420px;
-      overflow-y: auto;
-    }
-
-    .term-line { margin-bottom: 4px; }
-    .term-dim { color: var(--text-dim); }
-    .term-green { color: #34d399; }
-    .term-cyan { color: #38bdf8; }
-    .term-amber { color: #fbbf24; }
-    .term-magenta { color: #f472b6; }
-    .term-bold { font-weight: 600; }
-
-    /* Offline Privacy Architecture */
-    .privacy-box {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-xl);
-      padding: 40px;
+      color: var(--text-muted);
+      max-width: 680px;
       margin-bottom: 48px;
+      line-height: 1.6;
     }
 
-    .privacy-compare-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 32px;
-      margin-top: 32px;
-    }
-
-    @media (max-width: 768px) {
-      .privacy-compare-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .privacy-column {
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      border: 1px solid var(--border-subtle);
-      background: var(--bg-surface-elevated);
-    }
-
-    .privacy-col-bad {
-      border-color: rgba(239, 68, 68, 0.2);
-      background: rgba(239, 68, 68, 0.02);
-    }
-
-    .privacy-col-good {
-      border-color: rgba(16, 185, 129, 0.25);
-      background: rgba(16, 185, 129, 0.03);
-    }
-
-    .privacy-col-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 16px;
-      font-weight: 700;
-      margin-bottom: 16px;
-      color: var(--text-primary);
-    }
-
-    .privacy-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      font-size: 13.5px;
-    }
-
-    .privacy-list li {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      color: var(--text-secondary);
-    }
-
-    .privacy-list li svg {
-      flex-shrink: 0;
-      margin-top: 3px;
-    }
-
-    /* Getting Started / CLI Quickstart */
-    .steps-grid {
+    /* Features Grid */
+    .features-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 24px;
+    }
+
+    .feature-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+    }
+
+    .feature-tag {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--terracotta);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .feature-item h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-item p {
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* Interactive Rule Tester */
+    .tester-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
       margin-bottom: 48px;
     }
 
-    @media (max-width: 860px) {
-      .steps-grid {
-        grid-template-columns: 1fr;
-      }
+    .tester-input-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .tester-input {
+      flex: 1;
+      height: 44px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 16px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .tester-input:focus {
+      outline: none;
+      border-color: var(--sage);
+    }
+
+    .tester-result {
+      padding: 16px;
+      background: #181d19;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* Quickstart Step-by-Step */
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
 
     .step-card {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       padding: 24px;
-      position: relative;
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 20px;
     }
 
-    .step-number {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--accent-blue);
-      background: var(--accent-blue-glow);
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
+    .step-num {
+      width: 40px;
+      height: 40px;
+      border-radius: 6px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
-      margin-bottom: 16px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--sage-bright);
     }
 
-    .step-title {
+    .step-content h4 {
       font-size: 16px;
       font-weight: 600;
       margin-bottom: 8px;
-      color: var(--text-primary);
     }
 
-    .step-desc {
-      font-size: 13px;
-      color: var(--text-secondary);
-      margin-bottom: 16px;
+    .step-content p {
+      font-size: 14px;
+      color: var(--text-muted);
+      margin-bottom: 14px;
     }
 
-    .snippet-box {
-      background: var(--bg-base);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-sm);
-      padding: 10px 12px;
+    .step-cmd {
+      background: #171b18;
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      padding: 12px 16px;
       font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-primary);
+      font-size: 13px;
+      color: var(--text);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      cursor: pointer;
-    }
-
-    .snippet-box:hover {
-      border-color: var(--border-highlight);
-    }
-
-    /* Flags Table */
-    .flags-table-box {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-lg);
-      overflow-x: auto;
-    }
-
-    .flags-table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      font-size: 13px;
-    }
-
-    .flags-table th {
-      background: var(--bg-surface-elevated);
-      color: var(--text-tertiary);
-      font-weight: 600;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 14px 20px;
-      border-bottom: 1px solid var(--border-subtle);
-    }
-
-    .flags-table td {
-      padding: 14px 20px;
-      border-bottom: 1px solid var(--border-subtle);
-      color: var(--text-secondary);
-    }
-
-    .flags-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .flags-table code {
-      font-family: var(--font-mono);
-      color: var(--text-primary);
-      background: var(--bg-base);
-      padding: 3px 6px;
-      border-radius: 4px;
-      border: 1px solid var(--border-subtle);
-      font-size: 12px;
-    }
-
-    /* FAQ Section */
-    .faq-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-
-    @media (max-width: 768px) {
-      .faq-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .faq-item {
-      background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: var(--radius-md);
-      padding: 20px 24px;
-    }
-
-    .faq-question {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-    }
-
-    .faq-answer {
-      font-size: 13.5px;
-      color: var(--text-secondary);
-      line-height: 1.55;
     }
 
     /* Footer */
-    .site-footer {
-      border-top: 1px solid var(--border-subtle);
+    footer {
       padding: 48px 0;
-      background: var(--bg-surface);
-      color: var(--text-tertiary);
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-subtle);
       font-size: 13px;
+      color: var(--text-dim);
     }
 
     .footer-inner {
       display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
       flex-wrap: wrap;
-      gap: 20px;
+      gap: 16px;
     }
 
     .footer-links {
       display: flex;
-      gap: 24px;
-      list-style: none;
-    }
-
-    .footer-links a {
-      color: var(--text-secondary);
-      text-decoration: none;
-      transition: color 0.15s ease;
+      gap: 20px;
     }
 
     .footer-links a:hover {
-      color: var(--text-primary);
+      color: var(--text);
     }
 
-    /* Toast Notification */
-    .toast-msg {
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
-      background: #181c24;
-      color: #ffffff;
-      border: 1px solid var(--border-strong);
-      padding: 10px 18px;
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      font-weight: 500;
-      box-shadow: var(--shadow-lg);
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    /* Responsive Ratios */
+    @media (max-width: 900px) {
+      .showcase-body {
+        grid-template-columns: 1fr;
+      }
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+      .hero h1 {
+        font-size: 34px;
+      }
     }
 
-    .toast-msg.show {
-      transform: translateY(0);
-      opacity: 1;
+    @media (max-width: 450px) {
+      .folder-window {
+        aspect-ratio: 9 / 19.5;
+      }
     }
-
-    /* Responsive adjustments */
+  
+    /* Strict Mobile Viewport (9:19.5) Fixes */
     @media (max-width: 768px) {
-      .nav-links { display: none; }
-      .hero-section { padding: 48px 0 40px 0; }
-      .transformation-container { padding: 12px; }
-      .compare-stage { min-height: 540px; }
+      .nav-links a:not(.btn-github) {
+        display: none;
+      }
+      .nav-links {
+        gap: 8px;
+      }
+      .status-badge {
+        font-size: 11px;
+        padding: 3px 8px;
+      }
+      .status-badge span:not(.status-dot) {
+        display: none;
+      }
+      .quick-command {
+        max-width: 100%;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        word-break: break-all;
+      }
+      .quick-command code {
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+      .step-card {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .step-cmd {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        word-break: break-all;
+      }
+      .step-cmd code {
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+      .code-block {
+        word-break: break-all;
+        white-space: pre-wrap;
+      }
+      .hero-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .btn-primary {
+        justify-content: center;
+      }
     }
+  
   </style>
 </head>
 <body>
 
-  <!-- Navigation Bar -->
-  <header class="site-header">
+  <!-- Navigation -->
+  <header>
     <div class="container nav-inner">
-      <a href="#" class="brand-group">
-        <div class="brand-icon">
-          <!-- Clean Folder Stack SVG -->
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-          </svg>
-        </div>
-        <span class="brand-name">Laya</span>
-        <span class="version-pill">CLI v0.3.0</span>
-      </a>
-
-      <nav>
-        <ul class="nav-links">
-          <li><a href="#demo" class="nav-link">Transformation</a></li>
-          <li><a href="#router" class="nav-link">Try Your Files</a></li>
-          <li><a href="#safety" class="nav-link">Safety & Rollback</a></li>
-          <li><a href="#privacy" class="nav-link">100% Offline</a></li>
-          <li><a href="#quickstart" class="nav-link">Quickstart</a></li>
-        </ul>
-      </nav>
-
-      <div class="nav-actions">
-        <a href="https://github.com/whysooraj/laya-file-organizer" target="_blank" rel="noopener noreferrer" class="btn btn-subtle">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-          </svg>
-          GitHub
-        </a>
-        <a href="#quickstart" class="btn btn-primary">Install CLI</a>
+      <div class="brand">
+        <img src="favicon.svg" alt="Laya Logo" class="brand-icon">
+        <span>Laya</span>
+      </div>
+      <div class="nav-links">
+        <span class="status-badge">
+          <span class="status-dot"></span>
+          Deterministic Local Engine
+        </span>
+        <a href="#demo">Preview</a>
+        <a href="#rules">Rules Engine</a>
+        <a href="#safety">Safety First</a>
+        <a href="#quickstart">Quickstart</a>
+        <a href="https://github.com/sooraj-makala/laya-file-organizer" target="_blank" rel="noopener" class="btn-github">GitHub</a>
       </div>
     </div>
   </header>
 
   <!-- Hero Section -->
-  <section class="hero-section">
+  <section class="hero">
     <div class="container">
-      <div class="hero-content">
-        <div class="hero-tag">
-          <span class="pulse-dot"></span>
-          Sub-35ms Local Decision Pass
-        </div>
-        
-        <h1 class="hero-title">Your Downloads folder deserves better.</h1>
-        <p class="hero-subtitle">
-          Laya sorts files into meaningful folders using a lightweight local decision engine. Preview changes before anything moves.
-        </p>
+      <div class="hero-eyebrow">Local Desktop Utility</div>
+      <h1>Your Downloads folder deserves better.</h1>
+      <p>Laya sorts files into meaningful folders using a lightweight local decision engine. Preview changes before anything moves. 100% offline, zero cloud uploads.</p>
 
-        <div class="hero-cta-group">
-          <div class="install-bar" onclick="copyToClipboard('pip install laya-file-organizer', 'Command copied!')" title="Click to copy">
-            <span class="install-cmd"><span class="prefix">$</span>pip install laya-file-organizer</span>
-            <button class="copy-btn" aria-label="Copy Command">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-            </button>
-          </div>
-
-          <a href="#router" class="btn btn-subtle">
-            Test Your Files
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-              <polyline points="12 5 19 12 12 19"></polyline>
-            </svg>
-          </a>
-        </div>
-
-        <div class="hero-guarantees">
-          <span class="guarantee-item">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            100% Offline (Zero Cloud Uploads)
-          </span>
-          <span class="guarantee-item">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Zero File Deletion (Dry-Run Safety)
-          </span>
-          <span class="guarantee-item">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Sub-35ms Forward Pass (No Heavy LLM)
-          </span>
+      <div class="hero-actions">
+        <a href="#quickstart" class="btn-primary">Try Laya with Dry-Run</a>
+        <div class="quick-command">
+          <span>Run:</span>
+          <code>python laya_organizer.py ~/Downloads --dry-run</code>
+          <button class="btn-copy" onclick="navigator.clipboard.writeText('python laya_organizer.py ~/Downloads --dry-run'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000);">Copy</button>
         </div>
       </div>
 
-      <!-- Before / After Visual Showcase Container -->
-      <div class="transformation-container" id="demo">
-        <div class="transform-toolbar">
-          <div class="mode-switch-group">
-            <button class="mode-btn" id="btn-show-before" onclick="setComparisonMode('before')">
-              Chaotic Before
-            </button>
-            <button class="mode-btn active" id="btn-show-split" onclick="setComparisonMode('split')">
-              Interactive Split Slider
-            </button>
-            <button class="mode-btn" id="btn-show-after" onclick="setComparisonMode('after')">
-              Organized After
-            </button>
-          </div>
-
-          <div class="transform-meta">
-            <span>Drag slider to compare</span>
-            <button class="simulate-btn" id="btn-run-simulation" onclick="runSortingAnimation()">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-              Simulate 1-Click Clean
-            </button>
+      <!-- Before / After Showcase -->
+      <div class="showcase-box" id="demo">
+        <div class="showcase-header">
+          <div style="font-weight: 600; font-size: 14px;">Interactive Directory Transformation</div>
+          <div class="state-toggle">
+            <button class="toggle-btn" onclick="setMode('before', this)">Before Laya</button>
+            <button class="toggle-btn active" onclick="setMode('after', this)">After Laya (Organized)</button>
           </div>
         </div>
 
-        <!-- Simulated Finder Window -->
-        <div class="finder-window">
-          <div class="finder-titlebar">
-            <div class="window-controls">
-              <span class="ctrl-dot ctrl-close"></span>
-              <span class="ctrl-dot ctrl-min"></span>
-              <span class="ctrl-dot ctrl-max"></span>
+        <div class="showcase-body">
+          <!-- Folder Window View -->
+          <div class="folder-window">
+            <div class="window-header">
+              <div class="window-dots">
+                <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+              </div>
+              <span id="windowPath">~/Downloads (Organized)</span>
             </div>
-            <div class="finder-path">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              </svg>
-              ~/Downloads
-            </div>
-            <div class="finder-stats-badge" id="stats-badge-text">
-              34 items • 1.92 GB
+            <div class="window-content" id="fileContainer">
+              <!-- Dynamically populated -->
             </div>
           </div>
 
-          <div class="compare-stage" id="compare-stage">
-            <!-- Chaotic View (Before) -->
-            <div class="state-view before-view" id="before-view">
-              <div class="view-banner">
-                <span class="banner-title">
-                  <span class="tag-chaotic">Before Laya</span>
-                  Loose cluttered downloads, scrap files, and untracked installers
-                </span>
-                <span class="finder-stats-badge">Zero Organization</span>
-              </div>
-
-              <div class="files-jumble-grid" id="jumble-grid">
-                <div class="file-item">
-                  <div class="file-badge-icon ext-pdf">PDF</div>
-                  <div class="file-meta">
-                    <span class="file-name">invoice_october_2026_final(1).pdf</span>
-                    <span class="file-sub"><span>Financial</span><span>420 KB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-dmg">DMG</div>
-                  <div class="file-meta">
-                    <span class="file-name">DockerDesktop-v4.32.0-arm64.dmg</span>
-                    <span class="file-sub"><span>Installer</span><span>620 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-img">PNG</div>
-                  <div class="file-meta">
-                    <span class="file-name">Screen Shot 2026-11-18 at 3.42 PM.png</span>
-                    <span class="file-sub"><span>Screenshot</span><span>2.4 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-data">CSV</div>
-                  <div class="file-meta">
-                    <span class="file-name">dataset_churn_analysis_v2.csv</span>
-                    <span class="file-sub"><span>Data</span><span>48 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-code">SH</div>
-                  <div class="file-meta">
-                    <span class="file-name">deploy_production_worker.sh</span>
-                    <span class="file-sub"><span>Script</span><span>8 KB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-pdf">PDF</div>
-                  <div class="file-meta">
-                    <span class="file-name">signed_w9_tax_form_2026.pdf</span>
-                    <span class="file-sub"><span>Financial</span><span>180 KB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-junk">TMP</div>
-                  <div class="file-meta">
-                    <span class="file-name">~build_cache_temp_9201.tmp</span>
-                    <span class="file-sub"><span>Temporary Scrap</span><span>12 KB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-audio">WAV</div>
-                  <div class="file-meta">
-                    <span class="file-name">podcast_ep42_raw_sync.wav</span>
-                    <span class="file-sub"><span>Audio</span><span>185 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-dmg">ZIP</div>
-                  <div class="file-meta">
-                    <span class="file-name">project_backup_20261114.tar.gz</span>
-                    <span class="file-sub"><span>Archive</span><span>142 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-code">PY</div>
-                  <div class="file-meta">
-                    <span class="file-name">extract_analytics_metrics.py</span>
-                    <span class="file-sub"><span>Python Code</span><span>14 KB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-cad">STL</div>
-                  <div class="file-meta">
-                    <span class="file-name">drone_camera_gimbal_bracket.stl</span>
-                    <span class="file-sub"><span>3D Model</span><span>32 MB</span></span>
-                  </div>
-                </div>
-
-                <div class="file-item">
-                  <div class="file-badge-icon ext-pdf">EPUB</div>
-                  <div class="file-meta">
-                    <span class="file-name">distributed_systems_architecture.epub</span>
-                    <span class="file-sub"><span>Book</span><span>14 MB</span></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Organized View (After) -->
-            <div class="state-view after-view" id="after-view">
-              <div class="view-banner">
-                <span class="banner-title">
-                  <span class="tag-organized">After Laya (0.28s)</span>
-                  Categorized into structured folders with zero duplicate collisions
-                </span>
-                <span class="finder-stats-badge">12 Folders Cleanly Structured</span>
-              </div>
-
-              <div class="folders-showcase-grid">
-                <!-- Folder 1: Documents & Financial -->
-                <div class="folder-card">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title">Documents</span>
-                    </div>
-                    <span class="folder-count-chip">4 files</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">resignation_letter.docx</span>
-                      <span class="size">48 KB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">lease_agreement_signed.pdf</span>
-                      <span class="size">2.1 MB</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Folder 2: Financial -->
-                <div class="folder-card">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title">Financial</span>
-                    </div>
-                    <span class="folder-count-chip">3 files</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">invoice_october_2026.pdf</span>
-                      <span class="size">420 KB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">signed_w9_tax_form.pdf</span>
-                      <span class="size">180 KB</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Folder 3: Code and Scripts -->
-                <div class="folder-card">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title">Code_and_Scripts</span>
-                    </div>
-                    <span class="folder-count-chip">5 files</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">deploy_production_worker.sh</span>
-                      <span class="size">8 KB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">extract_analytics_metrics.py</span>
-                      <span class="size">14 KB</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Folder 4: Data & Configs -->
-                <div class="folder-card">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title">Data_and_Configs</span>
-                    </div>
-                    <span class="folder-count-chip">4 files</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">dataset_churn_analysis_v2.csv</span>
-                      <span class="size">48 MB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">docker-compose.staging.yml</span>
-                      <span class="size">4 KB</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Folder 5: Archives & Installers -->
-                <div class="folder-card">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title">Archives_and_Installers</span>
-                    </div>
-                    <span class="folder-count-chip">5 files</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">DockerDesktop-v4.32.0.dmg</span>
-                      <span class="size">620 MB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">project_backup.tar.gz</span>
-                      <span class="size">142 MB</span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Folder 6: Junk Candidates Quarantine -->
-                <div class="folder-card" style="border-color: rgba(245, 158, 11, 0.3);">
-                  <div class="folder-header">
-                    <div class="folder-label-group">
-                      <svg class="folder-svg-icon" style="color: var(--accent-amber);" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                      </svg>
-                      <span class="folder-title" style="color: var(--accent-amber);">Junk_Candidates</span>
-                    </div>
-                    <span class="folder-count-chip">Quarantine</span>
-                  </div>
-                  <div class="folder-file-pills">
-                    <div class="mini-file-row">
-                      <span class="name">~build_cache_temp_9201.tmp</span>
-                      <span class="size">12 KB</span>
-                    </div>
-                    <div class="mini-file-row">
-                      <span class="name">.crdownload_partial_blob</span>
-                      <span class="size">0 KB</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Draggable Split Bar -->
-            <div class="slider-divider" id="slider-divider">
-              <div class="slider-knob">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <polyline points="15 18 9 12 15 6"></polyline>
-                </svg>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                  <polyline points="9 18 15 12 9 6"></polyline>
-                </svg>
-              </div>
-            </div>
-
-            <!-- Native Range Input for Smooth Dragging -->
-            <input type="range" min="0" max="100" value="50" class="slider-range-input" id="slider-range" aria-label="Before and after split slider">
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Interactive File Categorization Preview Section -->
-  <section class="section-padding" id="router">
-    <div class="container">
-      <div class="section-header">
-        <div class="section-eyebrow">Interactive Engine Preview</div>
-        <h2 class="section-title">See where your files go.</h2>
-        <p class="section-desc">
-          Test Laya with your actual file names or drop any sample below. Watch the decision pass evaluate context and route with precision.
-        </p>
-      </div>
-
-      <div class="router-card">
-        <div class="router-input-wrapper">
-          <svg class="input-icon-left" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-          </svg>
-          <input 
-            type="text" 
-            class="router-input" 
-            id="file-query-input" 
-            value="w2_tax_statement_2026.pdf" 
-            placeholder="Type any filename, e.g. 'stripe_invoice_november.pdf' or 'model_weights.pt'"
-            autocomplete="off"
-            spellcheck="false"
-          >
-        </div>
-
-        <div class="preset-chips-label">Or choose a common file pattern to test:</div>
-        <div class="preset-chips">
-          <button class="preset-chip active" onclick="simulatePreset('w2_tax_statement_2026.pdf')">w2_tax_statement_2026.pdf</button>
-          <button class="preset-chip" onclick="simulatePreset('setup_docker_v4.28.dmg')">setup_docker_v4.28.dmg</button>
-          <button class="preset-chip" onclick="simulatePreset('customer_churn_q3.csv')">customer_churn_q3.csv</button>
-          <button class="preset-chip" onclick="simulatePreset('voice_memo_meeting_notes.m4a')">voice_memo_meeting_notes.m4a</button>
-          <button class="preset-chip" onclick="simulatePreset('Screen Shot 2026-11-20 at 14.12.png')">Screen Shot 2026-11-20.png</button>
-          <button class="preset-chip" onclick="simulatePreset('crdownload_cache_8912.tmp')">crdownload_cache_8912.tmp</button>
-          <button class="preset-chip" onclick="simulatePreset('chassis_mount_draft_v2.stl')">chassis_mount_draft_v2.stl</button>
-          <button class="preset-chip" onclick="simulatePreset('unknown_binary_dump.xyz')">unknown_binary_dump.xyz</button>
-        </div>
-
-        <!-- Real-time Result Panel -->
-        <div class="router-output-box">
-          <div class="route-target-panel">
-            <div class="route-header-label">Destination Folder</div>
-            <div class="target-folder-badge" id="output-folder-name">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="color: var(--accent-folder);">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-              </svg>
-              <span id="target-folder-text">Financial</span>
-            </div>
-            <div class="route-header-label" style="margin-top: 16px;">Target Path</div>
-            <div class="route-path-preview" id="target-path-text">
-              ~/Downloads/Financial/w2_tax_statement_2026.pdf
-            </div>
-          </div>
-
-          <div class="route-details-panel">
-            <div>
-              <div class="metric-row">
-                <span class="metric-label">Decision Pass Latency</span>
-                <span class="metric-value term-green" id="latency-text">19 ms</span>
-              </div>
-              <div class="metric-row">
-                <span class="metric-label">Confidence Score</span>
-                <span class="metric-value" id="confidence-text">99.4%</span>
-              </div>
-              <div class="confidence-meter-bar">
-                <div class="confidence-fill" id="confidence-bar" style="width: 99.4%;"></div>
-              </div>
-            </div>
-
-            <div class="route-reasoning" id="reasoning-text" style="margin-top: 20px;">
-              Tax document identified by keyword and extension. Mapped to Financial with sub-35ms local pass.
+          <!-- Operation Summary / Audit Card -->
+          <div style="display: flex; flex-direction: column; justify-content: center; gap: 16px;">
+            <div style="font-size: 18px; font-weight: 600; color: var(--cream);">Deterministic, non-destructive sorting</div>
+            <p style="font-size: 14px; color: var(--text-muted); line-height: 1.6;">
+              Laya evaluates file extension types, MIME structures, and custom regex rules to cluster unorganized downloads into dedicated directories without modifying file contents.
+            </p>
+            <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; padding: 16px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">
+              <div style="color: var(--sage-bright); margin-bottom: 6px;">[Dry-Run Simulation Log]</div>
+              <div>&bull; 4 PDFs &rarr; Documents/Financial</div>
+              <div>&bull; 6 Screenshots &rarr; Media/Screenshots</div>
+              <div>&bull; 3 DMG installers &rarr; Installers/</div>
+              <div style="margin-top: 8px; color: var(--terracotta);">0 files deleted &bull; Collision-safe deduplication</div>
             </div>
           </div>
         </div>
@@ -1843,617 +745,190 @@
     </div>
   </section>
 
-  <!-- Safe-Move & Dry-Run Transaction Safety -->
-  <section class="section-padding" id="safety">
+  <!-- Interactive Rule Tester -->
+  <section class="section" id="rules">
     <div class="container">
-      <div class="safety-grid">
-        <div>
-          <div class="section-eyebrow">Zero Data Loss Protocol</div>
-          <h2 class="section-title">Preview everything.<br>Overwrite nothing.</h2>
-          <p class="section-desc" style="margin-bottom: 32px;">
-            File organization should give peace of mind, not panic. Laya is built with defensive defaults so you never lose work.
-          </p>
+      <div class="section-eyebrow">Interactive Verification</div>
+      <h2 class="section-title">Test a file name against Laya's rule engine</h2>
+      <p class="section-desc">Type any file name to inspect how Laya parses its extension and selects destination folders.</p>
 
-          <div class="safety-features">
-            <div class="safety-card">
-              <div class="safety-icon-wrapper">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-              </div>
-              <div>
-                <h4 class="safety-card-title">Dry-Run Preview by Default</h4>
-                <p class="safety-card-desc">
-                  Run with <code>--dry-run</code> to simulate every destination path before touching the disk. Review the full change manifest upfront.
-                </p>
-              </div>
-            </div>
-
-            <div class="safety-card">
-              <div class="safety-icon-wrapper">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
-                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
-                  <path d="M12 11h4"></path>
-                  <path d="M12 16h4"></path>
-                  <path d="M8 11h.01"></path>
-                  <path d="M8 16h.01"></path>
-                </svg>
-              </div>
-              <div>
-                <h4 class="safety-card-title">Automatic Collision Renaming</h4>
-                <p class="safety-card-desc">
-                  If <code>report.pdf</code> already exists at the destination, Laya safely appends <code>report_dup_1.pdf</code> rather than silently overwriting.
-                </p>
-              </div>
-            </div>
-
-            <div class="safety-card">
-              <div class="safety-icon-wrapper">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="12"></line>
-                  <line x1="12" y1="16" x2="12.01" y2="16"></line>
-                </svg>
-              </div>
-              <div>
-                <h4 class="safety-card-title">Confidence Threshold Fallback</h4>
-                <p class="safety-card-desc">
-                  Any file scoring below 50% confidence automatically routes to <code>Uncertain/</code> instead of making a flawed guess.
-                </p>
-              </div>
-            </div>
-          </div>
+      <div class="tester-card">
+        <div class="tester-input-row">
+          <input type="text" id="testInput" class="tester-input" value="bank_statement_october_2024.pdf" placeholder="e.g. quarterly_report.xlsx, docker-compose.yml">
+          <button class="btn-primary" onclick="testRule()">Evaluate Path</button>
         </div>
-
-        <!-- Terminal Demo Box -->
-        <div class="terminal-box">
-          <div class="terminal-header">
-            <div class="window-controls">
-              <span class="ctrl-dot ctrl-close"></span>
-              <span class="ctrl-dot ctrl-min"></span>
-              <span class="ctrl-dot ctrl-max"></span>
-            </div>
-            <div class="terminal-actions-pills">
-              <button class="term-tab active" id="tab-dry-run" onclick="switchTermMode('dryrun')">--dry-run</button>
-              <button class="term-tab" id="tab-collision" onclick="switchTermMode('collision')">Collision Safety</button>
-              <button class="term-tab" id="tab-junk" onclick="switchTermMode('junk')">Junk Quarantine</button>
-            </div>
-          </div>
-
-          <div class="terminal-body" id="term-output">
-            <div class="term-line"><span class="term-dim">$</span> python3 laya_organizer.py ~/Downloads --dry-run</div>
-            <div class="term-line term-dim">Loading Laya Decision Engine...</div>
-            <div class="term-line">Found 34 files in '~/Downloads'. Evaluating forward pass...</div>
-            <div class="term-line term-dim">------------------------------------------------------------</div>
-            <div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'invoice_2026.pdf' -> <span class="term-green">~/Downloads/Financial/</span></div>
-            <div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'node-arm64.dmg' -> <span class="term-green">~/Downloads/Archives_and_Installers/</span></div>
-            <div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'deploy_worker.sh' -> <span class="term-green">~/Downloads/Code_and_Scripts/</span></div>
-            <div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'customers_q3.csv' -> <span class="term-green">~/Downloads/Data_and_Configs/</span></div>
-            <div class="term-line"><span class="term-amber">[JUNK CANDIDATE]</span> Would move: '~temp_cache.tmp' -> <span class="term-amber">~/Downloads/Junk_Candidates/</span></div>
-            <div class="term-line"><span class="term-magenta">[LOW CONFIDENCE]</span> Would move: 'binary_blob.bin' -> <span class="term-magenta">~/Downloads/Uncertain/</span></div>
-            <div class="term-line term-dim">------------------------------------------------------------</div>
-            <div class="term-line term-bold term-green">Dry-run complete: 34 files evaluated. 0 files touched.</div>
-          </div>
+        <div class="tester-result" id="testResult">
+          <span>Destination: <strong>Documents / Financial / bank_statement_october_2024.pdf</strong></span>
+          <span style="color: var(--sage-bright);">&check; Rule: [PDF + Statement Keyword]</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 100% Offline & Privacy Section -->
-  <section class="section-padding" id="privacy">
+  <!-- Core Pillars -->
+  <section class="section" id="safety">
     <div class="container">
-      <div class="privacy-box">
-        <div class="section-eyebrow">Local-First Architecture</div>
-        <h2 class="section-title">Zero cloud uploads. 100% private.</h2>
-        <p class="section-desc">
-          Your Downloads folder contains invoices, contracts, personal photos, and sensitive data. Laya runs entirely on your CPU with no remote API dependencies.
-        </p>
+      <div class="section-eyebrow">Safety Guarantees</div>
+      <h2 class="section-title">Built with absolute data preservation</h2>
+      <p class="section-desc">Never worry about lost or overwritten files.</p>
 
-        <div class="privacy-compare-grid">
-          <div class="privacy-column privacy-col-bad">
-            <div class="privacy-col-header" style="color: #f87171;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="15" y1="9" x2="9" y2="15"></line>
-                <line x1="9" y1="9" x2="15" y2="15"></line>
-              </svg>
-              Cloud LLM Organizers
-            </div>
-            <ul class="privacy-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                Sends sensitive filenames and snippets to remote servers
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                Requires third-party API keys (OpenAI / Anthropic bills)
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                High round-trip network latency (800ms - 2500ms per file)
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                Stops working completely when airplane mode is on
-              </li>
-            </ul>
-          </div>
+      <div class="features-grid">
+        <div class="feature-item">
+          <div class="feature-tag">Safety</div>
+          <h3>Dry-Run Preview First</h3>
+          <p>Always run with <code>--dry-run</code> to see an exact preview of every move before touching the filesystem.</p>
+        </div>
 
-          <div class="privacy-column privacy-col-good">
-            <div class="privacy-col-header" style="color: #34d399;">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-              </svg>
-              Laya Local Engine
-            </div>
-            <ul class="privacy-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                100% on-device forward pass. 0 outbound network bytes
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                No accounts, zero API keys, and zero subscription costs
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                Sub-35ms local execution speed on standard CPU
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                Works seamlessly offline, during flights, or air-gapped
-              </li>
-            </ul>
-          </div>
+        <div class="feature-item">
+          <div class="feature-tag">Integrity</div>
+          <h3>Collision Avoidance</h3>
+          <p>If a file with the same name already exists in the destination folder, Laya automatically appends an incremental counter.</p>
+        </div>
+
+        <div class="feature-item">
+          <div class="feature-tag">Offline</div>
+          <h3>Zero Network Telemetry</h3>
+          <p>No telemetry, no analytics, and zero cloud API dependencies. Everything runs directly on your local Python runtime.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Quickstart & Installation -->
-  <section class="section-padding" id="quickstart">
+  <!-- Quickstart -->
+  <section class="section" id="quickstart">
     <div class="container">
-      <div class="section-header">
-        <div class="section-eyebrow">Getting Started</div>
-        <h2 class="section-title">Up and running in 30 seconds.</h2>
-        <p class="section-desc">
-          Works on macOS, Linux, and Windows with Python 3.10+.
-        </p>
-      </div>
+      <div class="section-eyebrow">Quickstart</div>
+      <h2 class="section-title">Organize in two minutes</h2>
+      <p class="section-desc">Works on macOS, Linux, and Windows with Python 3.9+.</p>
 
-      <div class="steps-grid">
+      <div class="steps-list">
         <div class="step-card">
-          <div class="step-number">1</div>
-          <h3 class="step-title">Clone or Install</h3>
-          <p class="step-desc">Grab the repo or install via pip to get the CLI binary.</p>
-          <div class="snippet-box" onclick="copyToClipboard('git clone https://github.com/whysooraj/laya-file-organizer.git', 'Clone command copied!')" title="Click to copy">
-            <code>git clone https://github...</code>
-            <button class="copy-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+          <div class="step-num">01</div>
+          <div class="step-content">
+            <h4>Clone the organizer script</h4>
+            <p>Clone the lightweight repository to your home directory.</p>
+            <div class="step-cmd">
+              <code>git clone https://github.com/sooraj-makala/laya-file-organizer.git &amp;&amp; cd laya-file-organizer</code>
+              <button class="btn-copy" onclick="navigator.clipboard.writeText('git clone https://github.com/sooraj-makala/laya-file-organizer.git && cd laya-file-organizer'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000);">Copy</button>
+            </div>
           </div>
         </div>
 
         <div class="step-card">
-          <div class="step-number">2</div>
-          <h3 class="step-title">Preview with Dry-Run</h3>
-          <p class="step-desc">Test what Laya would do without moving a single file.</p>
-          <div class="snippet-box" onclick="copyToClipboard('python3 laya_organizer.py ~/Downloads --dry-run', 'Dry-run command copied!')" title="Click to copy">
-            <code>python3 laya_organizer.py ~/Downloads --dry-run</code>
-            <button class="copy-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+          <div class="step-num">02</div>
+          <div class="step-content">
+            <h4>Preview changes with --dry-run</h4>
+            <p>Inspect exactly where files will move without altering anything on disk.</p>
+            <div class="step-cmd">
+              <code>python laya_organizer.py ~/Downloads --dry-run</code>
+              <button class="btn-copy" onclick="navigator.clipboard.writeText('python laya_organizer.py ~/Downloads --dry-run'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000);">Copy</button>
+            </div>
           </div>
         </div>
 
         <div class="step-card">
-          <div class="step-number">3</div>
-          <h3 class="step-title">Organize Safely</h3>
-          <p class="step-desc">Organize in-place or route to a dedicated clean folder.</p>
-          <div class="snippet-box" onclick="copyToClipboard('python3 laya_organizer.py ~/Downloads -o ~/Organized', 'Organize command copied!')" title="Click to copy">
-            <code>python3 laya_organizer.py ~/Downloads -o ~/Organized</code>
-            <button class="copy-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+          <div class="step-num">03</div>
+          <div class="step-content">
+            <h4>Execute organization</h4>
+            <p>Run without flags to organize your directory cleanly.</p>
+            <div class="step-cmd">
+              <code>python laya_organizer.py ~/Downloads</code>
+              <button class="btn-copy" onclick="navigator.clipboard.writeText('python laya_organizer.py ~/Downloads'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy', 2000);">Copy</button>
+            </div>
           </div>
         </div>
       </div>
-
-      <!-- Flags Reference Table -->
-      <div class="flags-table-box">
-        <table class="flags-table">
-          <thead>
-            <tr>
-              <th>Flag / Argument</th>
-              <th>Type</th>
-              <th>Description</th>
-              <th>Example</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>--dry-run</code></td>
-              <td>Boolean Flag</td>
-              <td>Simulate organization paths without moving or creating files on disk</td>
-              <td><code>python3 laya_organizer.py ~/Downloads --dry-run</code></td>
-            </tr>
-            <tr>
-              <td><code>-o, --output</code></td>
-              <td>Directory Path</td>
-              <td>Target directory for organized folders. Preserves original directory if specified</td>
-              <td><code>python3 laya_organizer.py ~/Downloads -o ~/Organized</code></td>
-            </tr>
-            <tr>
-              <td><code>--confidence</code></td>
-              <td>Float (0.0 - 1.0)</td>
-              <td>Minimum certainty threshold (default 0.50). Predictions below this route to Uncertain/</td>
-              <td><code>python3 laya_organizer.py ~/Downloads --confidence 0.75</code></td>
-            </tr>
-            <tr>
-              <td><code>--check</code></td>
-              <td>Verification Flag</td>
-              <td>Runs the embedded test suite and self-check diagnostics on the decision router</td>
-              <td><code>python3 laya_organizer.py --check</code></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </div>
   </section>
 
-  <!-- FAQ Section -->
-  <section class="section-padding">
-    <div class="container">
-      <div class="section-header">
-        <div class="section-eyebrow">Common Questions</div>
-        <h2 class="section-title">Frequently Asked Questions</h2>
-      </div>
-
-      <div class="faq-grid">
-        <div class="faq-item">
-          <h4 class="faq-question">Does Laya ever delete my files?</h4>
-          <p class="faq-answer">
-            Never. Laya only performs safe directory moves. Temporary scrap and cache files are routed to <code>Junk_Candidates/</code> so you can review them before deleting anything manually.
-          </p>
-        </div>
-
-        <div class="faq-item">
-          <h4 class="faq-question">What if a file with the same name exists?</h4>
-          <p class="faq-answer">
-            Laya includes collision detection. If <code>report.pdf</code> already exists in the destination folder, Laya renames the incoming file to <code>report_dup_1.pdf</code> to prevent data loss.
-          </p>
-        </div>
-
-        <div class="faq-item">
-          <h4 class="faq-question">Does Laya need an internet connection?</h4>
-          <p class="faq-answer">
-            No. Laya is powered by a lightweight local decision engine that executes directly on your CPU. It transmits zero bytes to any server and works seamlessly in airplane mode.
-          </p>
-        </div>
-
-        <div class="faq-item">
-          <h4 class="faq-question">Can I organize without touching my original files?</h4>
-          <p class="faq-answer">
-            Yes. Use the <code>-o / --output &lt;path&gt;</code> argument to route organized categories to a separate directory, or use <code>--dry-run</code> to preview everything in your terminal first.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Site Footer -->
-  <footer class="site-footer">
+  <!-- Footer -->
+  <footer>
     <div class="container footer-inner">
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span style="font-weight: 600; color: var(--text-primary);">Laya</span>
-        <span>• Smart Local File Organizer</span>
-        <span>• Apache 2.0 License</span>
+      <div>Laya File Organizer &bull; Open-source utility &bull; MIT License</div>
+      <div class="footer-links">
+        <a href="https://github.com/sooraj-makala/laya-file-organizer" target="_blank" rel="noopener">GitHub Repository</a>
+        <a href="https://github.com/sooraj-makala/laya-file-organizer/blob/main/LICENSE" target="_blank" rel="noopener">License</a>
+        <a href="#quickstart">Documentation</a>
       </div>
-
-      <ul class="footer-links">
-        <li><a href="https://github.com/whysooraj/laya-file-organizer" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-        <li><a href="https://github.com/NandhaKishorM/laya" target="_blank" rel="noopener noreferrer">Laya Engine</a></li>
-        <li><a href="#quickstart">Documentation</a></li>
-      </ul>
     </div>
   </footer>
 
-  <!-- Toast Element -->
-  <div class="toast-msg" id="toast">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-    <span id="toast-text">Copied to clipboard</span>
-  </div>
-
-  <!-- Client-Side Interactive Scripts -->
   <script>
-    // --- 1. Before / After Split Slider Controller ---
-    const sliderRange = document.getElementById('slider-range');
-    const afterView = document.getElementById('after-view');
-    const sliderDivider = document.getElementById('slider-divider');
-    const btnBefore = document.getElementById('btn-show-before');
-    const btnSplit = document.getElementById('btn-show-split');
-    const btnAfter = document.getElementById('btn-show-after');
-
-    function updateSplitPosition(value) {
-      afterView.style.clipPath = `inset(0 0 0 ${value}%)`;
-      sliderDivider.style.left = `${value}%`;
-    }
-
-    sliderRange.addEventListener('input', (e) => {
-      updateSplitPosition(e.target.value);
-      resetActiveModeButtons();
-      btnSplit.classList.add('active');
-    });
-
-    function resetActiveModeButtons() {
-      btnBefore.classList.remove('active');
-      btnSplit.classList.remove('active');
-      btnAfter.classList.remove('active');
-    }
-
-    function setComparisonMode(mode) {
-      resetActiveModeButtons();
-      if (mode === 'before') {
-        btnBefore.classList.add('active');
-        sliderRange.value = 100;
-        updateSplitPosition(100);
-      } else if (mode === 'after') {
-        btnAfter.classList.add('active');
-        sliderRange.value = 0;
-        updateSplitPosition(0);
-      } else {
-        btnSplit.classList.add('active');
-        sliderRange.value = 50;
-        updateSplitPosition(50);
-      }
-    }
-
-    // Cascading sorting animation
-    function runSortingAnimation() {
-      const btn = document.getElementById('btn-run-simulation');
-      btn.disabled = true;
-      btn.style.opacity = '0.6';
-      
-      let step = 100;
-      setComparisonMode('before');
-      
-      const interval = setInterval(() => {
-        step -= 2;
-        if (step <= 0) {
-          clearInterval(interval);
-          setComparisonMode('after');
-          btn.disabled = false;
-          btn.style.opacity = '1';
-          showToast('34 files organized into 12 structured folders in 0.28s!');
-        } else {
-          sliderRange.value = step;
-          updateSplitPosition(step);
-        }
-      }, 16);
-    }
-
-    // --- 2. Interactive File Categorization Sandbox ---
-    const fileQueryInput = document.getElementById('file-query-input');
-    const targetFolderText = document.getElementById('target-folder-text');
-    const targetPathText = document.getElementById('target-path-text');
-    const latencyText = document.getElementById('latency-text');
-    const confidenceText = document.getElementById('confidence-text');
-    const confidenceBar = document.getElementById('confidence-fill') || document.getElementById('confidence-bar');
-    const reasoningText = document.getElementById('reasoning-text');
-
-    const routingRules = [
-      {
-        pattern: /invoice|receipt|tax|statement|billing|paystub|w2|1099|financial/i,
-        folder: "Financial",
-        reason: "Financial document detected by filename keyword. Routed to Financial/ with safe duplicate prevention.",
-        confidence: 99.4,
-        latency: 18
-      },
-      {
-        pattern: /\.(dmg|pkg|exe|iso|deb|rpm|appimage|msi)$/i,
-        folder: "Archives_and_Installers",
-        reason: "Software installer package disk image detected. Quarantines safely to Installers.",
-        confidence: 98.9,
-        latency: 14
-      },
-      {
-        pattern: /\.(zip|tar\.gz|tgz|tar|7z|rar)$/i,
-        folder: "Archives_and_Installers",
-        reason: "Compressed archive package detected.",
-        confidence: 99.1,
-        latency: 16
-      },
-      {
-        pattern: /\.(csv|parquet|tsv|json|yaml|yml|toml|xml|env)$/i,
-        folder: "Data_and_Configs",
-        reason: "Data schema or system configuration file detected.",
-        confidence: 97.5,
-        latency: 22
-      },
-      {
-        pattern: /\.(py|js|ts|jsx|tsx|rs|go|cpp|c|sh|sql|html|css|php)$/i,
-        folder: "Code_and_Scripts",
-        reason: "Source code file or automation script detected.",
-        confidence: 99.2,
-        latency: 15
-      },
-      {
-        pattern: /\.(tmp|crdownload|scrap|part|cache|log\.old)$|~lock/i,
-        folder: "Junk_Candidates",
-        reason: "Temporary scrap or incomplete browser download. Quarantined for review; never deleted.",
-        confidence: 96.0,
-        latency: 19
-      },
-      {
-        pattern: /\.(png|jpg|jpeg|svg|webp|gif|psd|ai|fig)$/i,
-        folder: "Images_and_Graphics",
-        reason: "Raster image or vector design asset detected.",
-        confidence: 99.6,
-        latency: 12
-      },
-      {
-        pattern: /\.(mp3|wav|flac|aac|m4a|ogg)$/i,
-        folder: "Audio_and_Music",
-        reason: "Audio stream or voice recording detected.",
-        confidence: 98.7,
-        latency: 17
-      },
-      {
-        pattern: /\.(mp4|mov|mkv|webm|avi)$/i,
-        folder: "Video_and_Movies",
-        reason: "Video clip or screen capture recording detected.",
-        confidence: 99.0,
-        latency: 15
-      },
-      {
-        pattern: /\.(stl|obj|blend|step|cad|dwg)$/i,
-        folder: "Design_and_3D",
-        reason: "3D CAD geometry or mesh project file detected.",
-        confidence: 95.8,
-        latency: 24
-      },
-      {
-        pattern: /\.(epub|mobi|azw3)$/i,
-        folder: "Books_and_Manuals",
-        reason: "E-book publication or technical documentation manual.",
-        confidence: 98.5,
-        latency: 16
-      },
-      {
-        pattern: /\.(pdf|docx|doc|txt|md|rtf)$/i,
-        folder: "Documents",
-        reason: "Document or text notes detected.",
-        confidence: 96.2,
-        latency: 20
-      }
+    const organizedView = [
+      { type: 'folder', name: 'Documents/', count: '14 files', icon: 'DIR' },
+      { type: 'folder', name: 'Media/Screenshots/', count: '28 files', icon: 'DIR' },
+      { type: 'folder', name: 'Archives/', count: '6 files', icon: 'DIR' },
+      { type: 'folder', name: 'Installers/', count: '3 files', icon: 'DIR' }
     ];
 
-    function evaluateFile(filename) {
-      const cleanName = filename.trim();
-      if (!cleanName) return;
+    const messyView = [
+      { type: 'file', name: 'invoice_oct_2024.pdf', ext: 'PDF' },
+      { type: 'file', name: 'Screenshot_2024_10_22.png', ext: 'PNG' },
+      { type: 'file', name: 'node_modules_backup.tar.gz', ext: 'TAR.GZ' },
+      { type: 'file', name: 'docker_desktop_setup.dmg', ext: 'DMG' },
+      { type: 'file', name: 'statement_chase.pdf', ext: 'PDF' },
+      { type: 'file', name: 'IMG_9102.jpg', ext: 'JPG' }
+    ];
 
-      let match = routingRules.find(r => r.pattern.test(cleanName));
-      if (!match) {
-        // Fallback to Uncertain if unclassified
-        match = {
-          folder: "Uncertain",
-          reason: "Low confidence prediction (<50%). Safely moved to Uncertain/ without making assumptions.",
-          confidence: 42.0,
-          latency: 28
-        };
-      }
-
-      targetFolderText.textContent = match.folder;
-      targetPathText.textContent = `~/Downloads/${match.folder}/${cleanName}`;
-      latencyText.textContent = `${match.latency} ms`;
-      confidenceText.textContent = `${match.confidence}%`;
-      confidenceBar.style.width = `${match.confidence}%`;
-      
-      if (match.folder === "Junk_Candidates") {
-        confidenceBar.style.background = "var(--accent-amber)";
-      } else if (match.folder === "Uncertain") {
-        confidenceBar.style.background = "#f472b6";
-      } else {
-        confidenceBar.style.background = "var(--accent-emerald)";
-      }
-
-      reasoningText.textContent = match.reason;
-    }
-
-    fileQueryInput.addEventListener('input', (e) => {
-      evaluateFile(e.target.value);
-    });
-
-    function simulatePreset(name) {
-      fileQueryInput.value = name;
-      evaluateFile(name);
-      
-      // Update chip styles
-      const chips = document.querySelectorAll('.preset-chip');
-      chips.forEach(c => {
-        if (c.textContent.trim() === name) {
-          c.classList.add('active');
+    function renderFiles(items) {
+      const container = document.getElementById('fileContainer');
+      container.innerHTML = '';
+      items.forEach(item => {
+        if (item.type === 'folder') {
+          const div = document.createElement('div');
+          div.className = 'folder-item';
+          div.innerHTML = `<div class="folder-name"><span class="folder-icon">[DIR]</span><span>${item.name}</span></div><span class="folder-count">${item.count}</span>`;
+          container.appendChild(div);
         } else {
-          c.classList.remove('active');
+          const div = document.createElement('div');
+          div.className = 'file-item';
+          div.innerHTML = `<div class="file-name"><span>${item.name}</span></div><span class="ext-pill">${item.ext}</span>`;
+          container.appendChild(div);
         }
       });
     }
 
-    // --- 3. Terminal Safety Tabs ---
-    const termTabDryRun = document.getElementById('tab-dry-run');
-    const termTabCollision = document.getElementById('tab-collision');
-    const termTabJunk = document.getElementById('tab-junk');
-    const termOutput = document.getElementById('term-output');
-
-    const termSnippets = {
-      dryrun: `
-<div class="term-line"><span class="term-dim">$</span> python3 laya_organizer.py ~/Downloads --dry-run</div>
-<div class="term-line term-dim">Loading Laya Decision Engine...</div>
-<div class="term-line">Found 34 files in '~/Downloads'. Evaluating forward pass...</div>
-<div class="term-line term-dim">------------------------------------------------------------</div>
-<div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'invoice_2026.pdf' -&gt; <span class="term-green">~/Downloads/Financial/</span></div>
-<div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'node-arm64.dmg' -&gt; <span class="term-green">~/Downloads/Archives_and_Installers/</span></div>
-<div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'deploy_worker.sh' -&gt; <span class="term-green">~/Downloads/Code_and_Scripts/</span></div>
-<div class="term-line"><span class="term-cyan">[DRY RUN]</span> Would move: 'customers_q3.csv' -&gt; <span class="term-green">~/Downloads/Data_and_Configs/</span></div>
-<div class="term-line"><span class="term-amber">[JUNK CANDIDATE]</span> Would move: '~temp_cache.tmp' -&gt; <span class="term-amber">~/Downloads/Junk_Candidates/</span></div>
-<div class="term-line"><span class="term-magenta">[LOW CONFIDENCE]</span> Would move: 'binary_blob.bin' -&gt; <span class="term-magenta">~/Downloads/Uncertain/</span></div>
-<div class="term-line term-dim">------------------------------------------------------------</div>
-<div class="term-line term-bold term-green">Dry-run complete: 34 files evaluated. 0 files touched.</div>
-      `,
-      collision: `
-<div class="term-line"><span class="term-dim">$</span> python3 laya_organizer.py ~/Downloads</div>
-<div class="term-line term-dim">Scanning files in ~/Downloads...</div>
-<div class="term-line"><span class="term-green">[MOVED]</span> 'resume_2026.docx' -&gt; ~/Downloads/Documents/resume_2026.docx</div>
-<div class="term-line"><span class="term-amber">[COLLISION DETECTED]</span> 'invoice_october.pdf' already exists at target!</div>
-<div class="term-line"><span class="term-cyan">[SAFE RENAME]</span> Moving as: <span class="term-bold">invoice_october_dup_1.pdf</span></div>
-<div class="term-line"><span class="term-green">[SUCCESS]</span> Destination preserved. Zero files overwritten.</div>
-<div class="term-line term-dim">------------------------------------------------------------</div>
-<div class="term-line term-bold term-green">All 34 files moved safely with automatic duplicate disambiguation.</div>
-      `,
-      junk: `
-<div class="term-line"><span class="term-dim">$</span> python3 laya_organizer.py ~/Downloads --confidence 0.60</div>
-<div class="term-line term-dim">Evaluating Laya 'is_temporary_junk' noul decisions...</div>
-<div class="term-line"><span class="term-amber">[JUNK DETECTED]</span> 'crdownload_8912.tmp' (junk score: 0.96)</div>
-<div class="term-line term-dim">  - Action: Quarantine to ~/Downloads/Junk_Candidates/</div>
-<div class="term-line"><span class="term-amber">[JUNK DETECTED]</span> '~lock.budget_presentation.xlsx#' (junk score: 0.98)</div>
-<div class="term-line term-dim">  - Action: Quarantine to ~/Downloads/Junk_Candidates/</div>
-<div class="term-line term-dim">------------------------------------------------------------</div>
-<div class="term-line term-bold term-cyan">Notice: Laya never deletes files automatically. Review Junk_Candidates before trashing.</div>
-      `
-    };
-
-    function switchTermMode(mode) {
-      termTabDryRun.classList.remove('active');
-      termTabCollision.classList.remove('active');
-      termTabJunk.classList.remove('active');
-
-      if (mode === 'dryrun') termTabDryRun.classList.add('active');
-      if (mode === 'collision') termTabCollision.classList.add('active');
-      if (mode === 'junk') termTabJunk.classList.add('active');
-
-      termOutput.innerHTML = termSnippets[mode].trim();
+    function setMode(mode, btn) {
+      document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (mode === 'after') {
+        document.getElementById('windowPath').innerText = '~/Downloads (Organized)';
+        renderFiles(organizedView);
+      } else {
+        document.getElementById('windowPath').innerText = '~/Downloads (Chaotic)';
+        renderFiles(messyView);
+      }
     }
 
-    // --- 4. Toast Notification Helper ---
-    let toastTimeout;
-    function showToast(msg) {
-      const toast = document.getElementById('toast');
-      const toastText = document.getElementById('toast-text');
-      toastText.textContent = msg;
-      toast.classList.add('show');
-      
-      clearTimeout(toastTimeout);
-      toastTimeout = setTimeout(() => {
-        toast.classList.remove('show');
-      }, 2600);
+    function testRule() {
+      const val = document.getElementById('testInput').value.trim().toLowerCase();
+      let folder = 'Other / Unsorted';
+      let rule = 'Default Fallback';
+
+      if (val.endsWith('.pdf') || val.endsWith('.docx') || val.endsWith('.xlsx')) {
+        if (val.includes('statement') || val.includes('invoice') || val.includes('bank')) {
+          folder = 'Documents / Financial';
+          rule = 'Rule: [Document + Financial Keyword]';
+        } else {
+          folder = 'Documents / General';
+          rule = 'Rule: [Standard Document Extension]';
+        }
+      } else if (val.endsWith('.png') || val.endsWith('.jpg') || val.endsWith('.jpeg')) {
+        folder = 'Media / Images';
+        rule = 'Rule: [MIME image/*]';
+      } else if (val.endsWith('.zip') || val.endsWith('.tar.gz') || val.endsWith('.tar')) {
+        folder = 'Archives / Compressed';
+        rule = 'Rule: [Archive Extension]';
+      } else if (val.endsWith('.dmg') || val.endsWith('.pkg') || val.endsWith('.exe')) {
+        folder = 'Installers / Binaries';
+        rule = 'Rule: [Executable / Installer Package]';
+      }
+
+      document.getElementById('testResult').innerHTML = `<span>Destination: <strong>${folder}</strong></span><span style="color: var(--sage-bright);">&check; ${rule}</span>`;
     }
 
-    function copyToClipboard(text, successMsg) {
-      navigator.clipboard.writeText(text).then(() => {
-        showToast(successMsg || 'Copied to clipboard');
-      }).catch(() => {
-        showToast('Copied to clipboard');
-      });
-    }
-
-    // Initialize Default File Query
-    evaluateFile('w2_tax_statement_2026.pdf');
+    // Initialize after view
+    renderFiles(organizedView);
   </script>
 </body>
 </html>
