@@ -12,6 +12,8 @@ import argparse
 from pathlib import Path
 from typing import Dict, Any
 
+ACTIVE_DOWNLOAD_EXTS = ('.crdownload', '.part', '.tmp', '.download', '.partial')
+
 # ponytail: stdlib text extraction helper with 1KB ceiling to keep forward pass instant
 def extract_file_sample(file_path: Path, max_chars: int = 1000) -> str:
     """Extract filename and text content snippet for Laya context."""
@@ -73,7 +75,7 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
     router = Router()
     questions = get_laya_questions()
     
-    files = [f for f in target_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+    files = [f for f in target_path.iterdir() if f.is_file() and (not f.name.startswith(".") or f.name.startswith(".~"))]
     if not files:
         print("No files found to organize.")
         return
@@ -82,6 +84,10 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
     
     stats = {}
     for file_path in files:
+        if file_path.name.startswith(".~") or file_path.name.lower().endswith(ACTIVE_DOWNLOAD_EXTS):
+            print(f"[Skipped] {file_path.name} (active download)")
+            continue
+
         sample_text = extract_file_sample(file_path)
         res = router.predict(sample_text, questions)
         
@@ -105,8 +111,12 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
         if not dry_run:
             # ponytail: auto-create target directory if it does not exist
             target_folder.mkdir(parents=True, exist_ok=True)
-            if dest_file_path.exists() and dest_file_path != file_path:
-                dest_file_path = target_folder / f"{file_path.stem}_dup{file_path.suffix}"
+            counter = 1
+            new_target = dest_file_path
+            while new_target.exists() and new_target != file_path:
+                new_target = target_folder / f"{file_path.stem}_dup{counter}{file_path.suffix}"
+                counter += 1
+            dest_file_path = new_target
             shutil.move(str(file_path), str(dest_file_path))
             
     print("\nOrganization Complete!")
