@@ -77,6 +77,23 @@ SHORT_FOLDER_NAMES = {
     "Uncertain": "Unsorted",
 }
 
+NESTED_FOLDER_NAMES = {
+    "Financial": "Documents/Financial",
+    "Documents": "Documents/General",
+    "Code_and_Scripts": "Development/Code",
+    "Data_and_Configs": "Development/Data",
+    "Logs_and_Diagnostics": "Development/Logs",
+    "Images_and_Graphics": "Media/Images",
+    "Audio_and_Music": "Media/Audio",
+    "Video_and_Movies": "Media/Videos",
+    "Archives_and_Installers": "Installers_and_Archives",
+    "Books_and_Manuals": "Documents/Books",
+    "Design_and_3D": "Media/3D_Design",
+    "Other": "Other",
+    "Junk_Candidates": "Junk_Candidates",
+    "Uncertain": "Uncertain",
+}
+
 
 def format_size(bytes_val: float) -> str:
     """Formats raw bytes into human-readable string (KB, MB, GB)."""
@@ -1418,6 +1435,11 @@ def config_subcommand(
             save_config(config)
             if not json_output:
                 print("Folder naming style set to short (Docs, Code, etc.)")
+        elif set_naming == "nested":
+            config["folder_names"] = dict(NESTED_FOLDER_NAMES)
+            save_config(config)
+            if not json_output:
+                print("Folder naming style set to nested hierarchy (Documents/Financial, Media/Images, etc.)")
         elif set_naming == "default":
             config["folder_names"] = dict(DEFAULT_FOLDER_NAMES)
             save_config(config)
