@@ -921,3 +921,155 @@ def test_simulated_crash_after_every_mutation():
             assert rolled is True
             assert f1.exists() and f1.read_text() == "Payload 1"
             assert f2.exists() and f2.read_text() == "Payload 2"
+
+
+def test_collision_intent_journaled_before_move():
+    """P0: Verify updated collision dest is journaled with state: 'planned' BEFORE disk move."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        docs_dir = root / "Documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Occupy destination so a collision occurs
+        occupying_file = docs_dir / "report.pdf"
+        occupying_file.write_text("Existing file already in destination")
+
+        src_file = root / "report.pdf"
+        src_file.write_text("New incoming report to organize")
+
+        config_override = {
+            "custom_rules": {".pdf": "Documents"},
+            "folder_names": DEFAULT_FOLDER_NAMES,
+        }
+        moves, _, _ = plan_organization(root, config_override=config_override)
+        assert len(moves) == 1
+
+        batch_id = "collision_intent_batch"
+        seen_journal_entries = []
+
+        # Hook to inspect journal on disk right before file movement
+        orig_link = os.link
+
+        def inspecting_link(src, dst):
+            from laya_organizer import load_history
+            batches = load_history(history_file=history_file)
+            if batches:
+                m = batches[0]["moves"][0]
+                seen_journal_entries.append(dict(m))
+            return orig_link(src, dst)
+
+        with patch("os.link", side_effect=inspecting_link):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+        # The journal MUST have recorded report_dup1.pdf and state: "planned" before os.link ran!
+        assert len(seen_journal_entries) >= 1
+        pre_move_record = seen_journal_entries[0]
+        assert "report_dup1.pdf" in pre_move_record["dest"]
+        assert pre_move_record["state"] == "planned"
+
+        # Occupying file was preserved
+        assert occupying_file.read_text() == "Existing file already in destination"
+        # Moved file is at report_dup1.pdf
+        dup_file = docs_dir / "report_dup1.pdf"
+        assert dup_file.exists()
+        assert dup_file.read_text() == "New incoming report to organize"
+
+
+def test_windows_locking_fallback():
+    """P1: Verify cross-process file_lock fallback using msvcrt when fcntl is unavailable."""
+    from unittest.mock import MagicMock
+    mock_msvcrt = MagicMock()
+    mock_msvcrt.LK_LOCK = 1
+    mock_msvcrt.LK_UNLCK = 2
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        lock_file = Path(tmpdir) / "win.lock"
+        with patch("laya_organizer.fcntl", None), patch("laya_organizer.msvcrt", mock_msvcrt):
+            with file_lock(lock_file):
+                assert mock_msvcrt.locking.called
+                assert mock_msvcrt.locking.call_args_list[0][0][1] == mock_msvcrt.LK_LOCK
+            assert mock_msvcrt.locking.call_args_list[1][0][1] == mock_msvcrt.LK_UNLCK
+
+
+def test_collision_race_retry_preserves_user_data():
+    """P1: Verify atomic_no_overwrite_move retries when destination appears between check and move."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        dest_dir = root / "Documents"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        src_file = root / "sample.pdf"
+        src_file.write_text("Payload")
+
+        config_override = {
+            "custom_rules": {".pdf": "Documents"},
+            "folder_names": DEFAULT_FOLDER_NAMES,
+        }
+        moves, _, _ = plan_organization(root, config_override=config_override)
+
+        real_link = os.link
+        attempt = [0]
+
+        def racing_link(src, dst):
+            attempt[0] += 1
+            if attempt[0] == 1:
+                # Simulate a concurrent process creating the destination right before our link
+                Path(dst).write_text("Created by concurrent process")
+                raise FileExistsError("File exists (simulated race condition)")
+            return real_link(src, dst)
+
+        with patch("os.link", side_effect=racing_link):
+            execute_plan(moves, batch_id="race_test", target_dir=root, history_file=history_file)
+
+        # Destination created by concurrent process must not be overwritten!
+        assert (dest_dir / "sample.pdf").read_text() == "Created by concurrent process"
+        # Our file must be safely moved to sample_dup1.pdf
+        assert (dest_dir / "sample_dup1.pdf").read_text() == "Payload"
+
+
+def test_recovery_verifies_actual_disk_state():
+    """P1: Verify resume_interrupted_batch does not blindly trust journal state: 'completed'."""
+    from laya_organizer import load_history, record_batch_moves
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        docs = root / "Documents"
+        docs.mkdir(parents=True, exist_ok=True)
+
+        # Case 1: Journal says completed, but source remains and destination was never created
+        src_file = root / "invoice.pdf"
+        src_file.write_text("Invoice content")
+        dest_file = docs / "invoice.pdf"
+
+        record_batch_moves(
+            batch_id="ghost_completed",
+            target_dir=str(root),
+            moves=[{"source": str(src_file), "dest": str(dest_file), "state": "completed"}],
+            status="interrupted",
+            history_file=history_file,
+        )
+
+        # Resume should detect source exists and move it to destination
+        resumed = resume_interrupted_batch(batch_id="ghost_completed", history_file=history_file)
+        assert resumed is True
+        assert dest_file.exists()
+        assert not src_file.exists()
+        assert dest_file.read_text() == "Invoice content"
+
+        # Case 2: Journal says completed, but both source and destination are completely gone
+        record_batch_moves(
+            batch_id="both_missing",
+            target_dir=str(root),
+            moves=[{"source": str(root / "lost.pdf"), "dest": str(docs / "lost.pdf"), "state": "completed"}],
+            status="interrupted",
+            history_file=history_file,
+        )
+        resumed_missing = resume_interrupted_batch(batch_id="both_missing", history_file=history_file)
+        assert resumed_missing is False
+        history = load_history(history_file=history_file)
+        missing_batch = next(b for b in history if b["batch_id"] == "both_missing")
+        assert missing_batch["status"] == "partial_completed"
+        assert missing_batch["moves"][0]["state"] == "failed"

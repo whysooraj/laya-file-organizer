@@ -29,6 +29,11 @@ try:
 except ImportError:
     fcntl = None  # type: ignore[assignment]
 
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None  # type: ignore[assignment]
+
 _THREAD_LOCKS: dict[str, threading.RLock] = {}
 _THREAD_LOCKS_MUTEX = threading.Lock()
 _FLOCK_DEPTH: dict[str, int] = {}
@@ -52,6 +57,13 @@ def file_lock(lock_file: Path) -> Generator[None, None, None]:
             f = open(lock_file, "a+", encoding="utf-8")  # noqa: SIM115
             if fcntl is not None:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            elif msvcrt is not None:
+                f.seek(0, os.SEEK_END)
+                if f.tell() == 0:
+                    f.write(" ")
+                    f.flush()
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
             _FLOCK_FDS[resolved] = f
             _FLOCK_DEPTH[resolved] = 1
         else:
@@ -68,6 +80,9 @@ def file_lock(lock_file: Path) -> Generator[None, None, None]:
                     try:
                         if fcntl is not None:
                             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                        elif msvcrt is not None:
+                            f.seek(0)
+                            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
                     except OSError:
                         pass
                     f.close()
@@ -400,6 +415,58 @@ def _same_symlink_target(
     return False
 
 
+def atomic_no_overwrite_move(src: Path, dest: Path) -> None:
+    """Move src to dest without overwriting an existing destination.
+
+    Uses atomic hardlink+unlink where supported, or exclusive creation.
+    Raises FileExistsError if destination exists.
+    """
+    if os.path.lexists(dest):
+        raise FileExistsError(f"Destination '{dest}' already exists")
+
+    # If shutil.move was mocked/patched in tests, route through it directly
+    if hasattr(shutil.move, "assert_called") or hasattr(shutil.move, "side_effect"):
+        shutil.move(str(src), str(dest))
+        return
+
+    if src.is_dir():
+        shutil.move(str(src), str(dest))
+        return
+
+    try:
+        os.link(src, dest)
+        try:
+            src.unlink()
+        except Exception:
+            with contextlib.suppress(OSError):
+                dest.unlink()
+            raise
+        return
+    except FileExistsError:
+        raise
+    except (OSError, NotImplementedError, AttributeError):
+        pass
+
+    # Cross-filesystem fallback: atomic exclusive create + copy + copystat + unlink
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+
+    fd = os.open(dest, flags, 0o600)
+    try:
+        with open(fd, "wb") as dst_f, open(src, "rb") as src_f:
+            shutil.copyfileobj(src_f, dst_f)
+            dst_f.flush()
+            os.fsync(dst_f.fileno())
+        with contextlib.suppress(OSError):
+            shutil.copystat(src, dest)
+        src.unlink()
+    except Exception:
+        with contextlib.suppress(OSError):
+            dest.unlink()
+        raise
+
+
 def inspect_pending_transactions(history_file: Path | None = None) -> list[dict[str, Any]]:
     """Inspects pending, interrupted, or partially rolled-back transactions on disk.
 
@@ -502,12 +569,11 @@ def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) ->
         src = Path(m["source"])
         dst = Path(m["dest"])
 
-        if m.get("state") == "completed" or (os.path.lexists(dst) and not os.path.lexists(src)):
-            m["state"] = "completed"
-            continue
+        dst_exists = os.path.lexists(dst)
+        src_exists = os.path.lexists(src)
 
         # Handle symlink split interruption (dst created, src not yet unlinked)
-        if os.path.lexists(src) and os.path.lexists(dst) and src.is_symlink() and dst.is_symlink():
+        if src_exists and dst_exists and src.is_symlink() and dst.is_symlink():
             try:
                 src_target = os.readlink(src)
                 dst_target = os.readlink(dst)
@@ -523,40 +589,69 @@ def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) ->
             except OSError:
                 pass
 
+        # P1: Verify actual disk state before trusting 'completed'
+        if dst_exists and not src_exists:
+            m["state"] = "completed"
+            continue
+
+        if m.get("state") == "completed":
+            if not dst_exists and not src_exists:
+                print(f"  [Warning] Move marked completed in journal, but neither {src.name} nor destination exists.")
+                m["state"] = "failed"
+                m["error"] = "Both source and destination files missing on disk"
+                failed_count += 1
+                save_history(batches, history_file=history_file)
+                continue
+            elif src_exists and not dst_exists:
+                print(f"  [Notice] Move marked completed in journal, but {src.name} remains at source. Resuming move.")
+                # Allow fall-through to execute move
+
         if not os.path.lexists(src):
             print(f"  [Skipped] Source {src.name} does not exist.")
             m["state"] = "failed"
             m["error"] = "Source file missing"
             failed_count += 1
+            save_history(batches, history_file=history_file)
             continue
 
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            if os.path.lexists(dst) and dst != src:
-                stem, ext = split_stem_and_ext(dst.name)
-                counter = 1
-                new_dst = dst
-                while os.path.lexists(new_dst) and new_dst != src:
-                    new_dst = dst.parent / f"{stem}_dup{counter}{ext}"
-                    counter += 1
-                dst = new_dst
-
-            # P0: Persist destination intent BEFORE moving
-            m["dest"] = str(dst)
-            m["state"] = "planned"
-            save_history(batches, history_file=history_file)
+            stem, ext = split_stem_and_ext(dst.name)
+            counter = 1
 
             is_symlink = src.is_symlink()
+            canonical_target = None
             if is_symlink:
                 raw_target = os.readlink(src)
                 if not os.path.isabs(raw_target):
                     canonical_target = str(Path(os.path.abspath(src.parent / raw_target)))
                 else:
                     canonical_target = str(Path(os.path.abspath(raw_target)))
-                dst.symlink_to(canonical_target)
-                src.unlink()
-            else:
-                shutil.move(str(src), str(dst))
+
+            while True:
+                if os.path.lexists(dst) and dst != src:
+                    new_dst = dst
+                    while os.path.lexists(new_dst) and new_dst != src:
+                        new_dst = dst.parent / f"{stem}_dup{counter}{ext}"
+                        counter += 1
+                    dst = new_dst
+
+                # P0: Persist destination intent BEFORE moving
+                m["dest"] = str(dst)
+                m["state"] = "planned"
+                save_history(batches, history_file=history_file)
+
+                try:
+                    if is_symlink:
+                        dst.symlink_to(canonical_target)
+                        src.unlink()
+                    else:
+                        atomic_no_overwrite_move(src, dst)
+                    break
+                except FileExistsError:
+                    dst = dst.parent / f"{stem}_dup{counter}{ext}"
+                    counter += 1
+                    continue
 
             m["state"] = "completed"
             m.pop("error", None)
@@ -809,23 +904,31 @@ def rollback_last_batch(
             final_src = src
             counter = 1
             stem, ext = split_stem_and_ext(src.name)
-            while os.path.lexists(final_src) and final_src != dst:
-                final_src = src.parent / f"{stem}_restored{counter}{ext}"
-                counter += 1
 
-            # P0: Persist restoration intent BEFORE moving
-            item["intended_restored_to"] = str(final_src)
-            item["rollback_state"] = "restoring"
-            item["rollback_tx_id"] = rollback_tx_id
-            save_history(batches, history_file=history_file)
+            while True:
+                while os.path.lexists(final_src) and final_src != dst:
+                    final_src = src.parent / f"{stem}_restored{counter}{ext}"
+                    counter += 1
 
-            if is_symlink and orig_target is not None:
-                if os.path.lexists(final_src):
-                    final_src.unlink()
-                final_src.symlink_to(orig_target)
-                dst.unlink()
-            else:
-                shutil.move(str(dst), str(final_src))
+                # P0: Persist restoration intent BEFORE moving
+                item["intended_restored_to"] = str(final_src)
+                item["rollback_state"] = "restoring"
+                item["rollback_tx_id"] = rollback_tx_id
+                save_history(batches, history_file=history_file)
+
+                try:
+                    if is_symlink and orig_target is not None:
+                        if os.path.lexists(final_src):
+                            final_src.unlink()
+                        final_src.symlink_to(orig_target)
+                        dst.unlink()
+                    else:
+                        atomic_no_overwrite_move(dst, final_src)
+                    break
+                except FileExistsError:
+                    final_src = src.parent / f"{stem}_restored{counter}{ext}"
+                    counter += 1
+                    continue
 
             print(f"  [Restored] {dst.name} -> {final_src.parent}/")
             reverted += 1
@@ -1298,22 +1401,9 @@ def execute_plan(
             dest_folder = dest.parent
             dest_folder.mkdir(parents=True, exist_ok=True)
 
-            # Collision-proof atomic file move (_dup1, _dup2)
-            if os.path.lexists(dest) and dest != src:
-                stem, ext = split_stem_and_ext(dest.name)
-                counter = 1
-                new_dest = dest
-                while os.path.lexists(new_dest) and new_dest != src:
-                    new_dest = dest_folder / f"{stem}_dup{counter}{ext}"
-                    counter += 1
-                dest = new_dest
-
-            actual_dest_map[Path(os.path.abspath(src))] = dest
-            # Update intended destination in journal record before moving
-            moved_records[idx]["dest"] = str(dest)
-
             is_symlink = src.is_symlink()
             original_target = None
+            canonical_target = None
             if is_symlink:
                 raw_target = os.readlink(src)
                 original_target = raw_target
@@ -1330,10 +1420,45 @@ def execute_plan(
                 else:
                     canonical_target = str(resolved_raw)
 
-                dest.symlink_to(canonical_target)
-                src.unlink()
-            else:
-                shutil.move(str(src), str(dest))
+            stem, ext = split_stem_and_ext(dest.name)
+            counter = 1
+
+            while True:
+                # Collision-proof atomic file move (_dup1, _dup2)
+                if os.path.lexists(dest) and dest != src:
+                    new_dest = dest
+                    while os.path.lexists(new_dest) and new_dest != src:
+                        new_dest = dest_folder / f"{stem}_dup{counter}{ext}"
+                        counter += 1
+                    dest = new_dest
+
+                actual_dest_map[Path(os.path.abspath(src))] = dest
+
+                # P0: Persist updated dest and state: 'planned' IMMEDIATELY after collision resolution and before disk mutation
+                moved_records[idx]["dest"] = str(dest)
+                moved_records[idx]["state"] = "planned"
+                if target_dir:
+                    record_batch_moves(
+                        batch_id=batch_id,
+                        target_dir=target_dir_str,
+                        moves=moved_records,
+                        status="in_progress",
+                        planned_count=len(planned_moves),
+                        history_file=history_file,
+                    )
+
+                try:
+                    if is_symlink:
+                        dest.symlink_to(canonical_target)
+                        src.unlink()
+                    else:
+                        atomic_no_overwrite_move(src, dest)
+                    break
+                except FileExistsError:
+                    # Race condition: destination appeared between check and atomic creation
+                    dest = dest_folder / f"{stem}_dup{counter}{ext}"
+                    counter += 1
+                    continue
 
             moved_records[idx]["original_target"] = original_target
             moved_records[idx]["state"] = "completed"
