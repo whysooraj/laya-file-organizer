@@ -14,7 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - name: Checkout repository
@@ -34,10 +34,10 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install -e .
 
-      - name: Lint with Ruff
+      - name: Lint with Ruff (Strict Quality Gate)
         shell: bash
         run: |
-          ruff check . --exit-zero
+          ruff check .
 
       - name: Run test suite
         shell: bash

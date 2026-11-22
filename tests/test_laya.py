@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import sys
 import tempfile
 from pathlib import Path
@@ -58,7 +60,7 @@ def test_extract_file_sample_binary():
 def test_heuristic_router_categories():
     router = HeuristicRouter()
     q = get_laya_questions()
-    
+
     samples = [
         ("Filename: invoice_2026.pdf\nExtension: .pdf\nContent Snippet: Invoice total $500", "Financial"),
         ("Filename: script.py\nExtension: .py\nContent Snippet: print('hello')", "Code_and_Scripts"),
@@ -88,8 +90,8 @@ def test_organize_and_rollback():
         file2 = test_dir / "app.py"
         file2.write_text("print('hello')")
 
-        # Live run
-        res = organize_directory(str(test_dir), dry_run=False)
+        # Live run with explicit apply
+        res = organize_directory(str(test_dir), apply=True)
         assert res["count"] == 2
         assert not file1.exists()
         assert not file2.exists()

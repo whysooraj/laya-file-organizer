@@ -5,6 +5,8 @@ Sub-35ms local intelligent file organization engine.
 Categorizes files, manages transactions with rollback, and offers interactive terminal UI.
 """
 
+from __future__ import annotations
+
 import argparse
 import datetime
 import hashlib
@@ -13,6 +15,7 @@ import os
 import re
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
@@ -39,7 +42,7 @@ COMPOUND_EXTENSIONS = (
     ".min.css",
 )
 
-SCRAP_EXTENSIONS = {".tmp", ".temp", ".swp", ".crdownload"}
+SCRAP_EXTENSIONS = {".tmp", ".temp", ".swp", ".crdownload", ".part", ".partial", ".download"}
 SCRAP_EXACT_NAMES = {"thumbs.db", ".ds_store"}
 SCRAP_PREFIXES = ("temp_", "cache_")
 
@@ -176,9 +179,7 @@ def is_junk_candidate(path_or_name: Path | str) -> bool:
     for ext in SCRAP_EXTENSIONS:
         if name_lower.endswith(ext):
             return True
-    if name_lower.startswith(SCRAP_PREFIXES):
-        return True
-    return False
+    return bool(name_lower.startswith(SCRAP_PREFIXES))
 
 
 def validate_confidence_threshold(val: Any) -> float:
@@ -188,10 +189,29 @@ def validate_confidence_threshold(val: Any) -> float:
     try:
         f_val = float(val)
     except (TypeError, ValueError):
-        raise ValueError(f"Confidence threshold must be a float between 0.0 and 1.0, got: {val!r}")
+        raise ValueError(f"Confidence threshold must be a float between 0.0 and 1.0, got: {val!r}") from None
     if not (0.0 <= f_val <= 1.0):
         raise ValueError(f"Confidence threshold must be between 0.0 and 1.0, got: {f_val}")
     return f_val
+
+
+def atomic_write_json(path: Path, data: Any, indent: int = 2) -> None:
+    """Atomically writes JSON to disk via temporary file, fsync, and os.replace."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_file = path.with_suffix(f".tmp.{os.getpid()}_{int(time.time() * 1000)}")
+    try:
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_file, path)
+    except Exception:
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def load_config() -> dict[str, Any]:
@@ -218,16 +238,14 @@ def load_config() -> dict[str, Any]:
                         config["default_confidence"] = float(user_conf["default_confidence"])
                     if "auto_confirm" in user_conf:
                         config["auto_confirm"] = bool(user_conf["auto_confirm"])
-        except Exception:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError):
             pass
     return config
 
 
 def save_config(config: dict[str, Any]) -> None:
-    """Persists config to ~/.config/laya/config.json."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+    """Persists config to ~/.config/laya/config.json atomically."""
+    atomic_write_json(CONFIG_FILE, config)
 
 
 def load_history(history_file: Path | None = None) -> list[dict[str, Any]]:
@@ -239,43 +257,63 @@ def load_history(history_file: Path | None = None) -> list[dict[str, Any]]:
         with open(target_history, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("batches", [])
-    except Exception:
+    except (OSError, json.JSONDecodeError, ValueError, KeyError):
         return []
 
 
 def save_history(batches: list[dict[str, Any]], history_file: Path | None = None) -> None:
-    """Saves move journal history."""
+    """Saves move journal history atomically."""
     target_history = history_file or HISTORY_FILE
-    target_history.parent.mkdir(parents=True, exist_ok=True)
-    with open(target_history, "w", encoding="utf-8") as f:
-        json.dump({"batches": batches[-50:]}, f, indent=2)  # retain last 50 batches
+    atomic_write_json(target_history, {"batches": batches[-50:]})
 
 
 def record_batch_moves(
     batch_id: str,
     target_dir: str,
     moves: list[dict[str, Any]],
-    history_file: Path | None = None
+    status: str = "completed",
+    planned_count: int | None = None,
+    history_file: Path | None = None,
 ) -> None:
-    """Appends an executed sorting batch to history for rollback."""
-    if not moves:
-        return
+    """Atomically records or updates a sorting batch in history journal."""
     batches = load_history(history_file=history_file)
-    batches.append({
+    existing_idx = None
+    for idx, b in enumerate(batches):
+        if b.get("batch_id") == batch_id:
+            existing_idx = idx
+            break
+
+    entry = {
         "batch_id": batch_id,
         "timestamp": datetime.datetime.now().isoformat(),
         "target_dir": str(target_dir),
+        "status": status,
+        "planned_count": planned_count if planned_count is not None else len(moves),
         "count": len(moves),
         "moves": moves,
-    })
+    }
+    if existing_idx is not None:
+        batches[existing_idx] = entry
+    else:
+        batches.append(entry)
     save_history(batches, history_file=history_file)
+
+
+def check_pending_transactions(history_file: Path | None = None) -> list[dict[str, Any]]:
+    """Checks for interrupted, in-progress, or partially rolled-back transactions."""
+    batches = load_history(history_file=history_file)
+    return [b for b in batches if b.get("status") in ("in_progress", "interrupted", "partial_rollback")]
 
 
 def rollback_last_batch(
     batch_id: str | None = None,
     history_file: Path | None = None
 ) -> bool:
-    """Reverts the last (or specified) sorting transaction batch."""
+    """Reverts the last (or specified) sorting transaction batch.
+
+    Crash-safe and lossless: only removes the batch from history if every move is
+    successfully restored. Retains failed or skipped moves in the journal.
+    """
     batches = load_history(history_file=history_file)
     if not batches:
         print("No organization history found to roll back.")
@@ -298,10 +336,17 @@ def rollback_last_batch(
         return False
 
     moves = target_batch.get("moves", [])
+    if not moves:
+        # Empty batch with 0 moves recorded, safe to remove
+        batches.pop(target_idx)
+        save_history(batches, history_file=history_file)
+        return True
+
     print(f"\nRolling back batch {target_batch.get('batch_id')} ({len(moves)} files)...")
 
     reverted = 0
     folders_to_clean: set[Path] = set()
+    unresolved_moves: list[dict[str, Any]] = []
 
     for item in reversed(moves):
         src = Path(item["source"])
@@ -329,10 +374,16 @@ def rollback_last_batch(
                 print(f"  [Restored] {dst.name} -> {final_src.parent}/")
                 reverted += 1
                 folders_to_clean.add(dst.parent)
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 print(f"  [Failed] Could not restore {dst.name}: {e}")
+                err_item = dict(item)
+                err_item["last_rollback_error"] = str(e)
+                unresolved_moves.append(err_item)
         else:
             print(f"  [Skipped] {dst} no longer exists.")
+            err_item = dict(item)
+            err_item["last_rollback_error"] = "Destination file no longer exists"
+            unresolved_moves.append(err_item)
 
     # Clean empty category folders if left empty, innermost first
     for folder in sorted(folders_to_clean, key=lambda p: len(str(p)), reverse=True):
@@ -340,14 +391,26 @@ def rollback_last_batch(
             if folder.exists() and folder.is_dir() and not any(folder.iterdir()):
                 folder.rmdir()
                 print(f"  [Cleaned empty folder] {folder.name}/")
-        except Exception:
+        except OSError:
             pass
 
-    # Remove reverted batch from history
-    batches.pop(target_idx)
+    if not unresolved_moves:
+        # All files restored cleanly: remove batch from history
+        batches.pop(target_idx)
+        save_history(batches, history_file=history_file)
+        print(f"\nRollback complete. Successfully restored {reverted}/{len(moves)} files.")
+        return True
+
+    # Partial rollback: retain unresolved items in journal so records are not lost!
+    target_batch["moves"] = unresolved_moves
+    target_batch["count"] = len(unresolved_moves)
+    target_batch["status"] = "partial_rollback"
     save_history(batches, history_file=history_file)
-    print(f"\nRollback complete. Successfully restored {reverted}/{len(moves)} files.")
-    return True
+    print(
+        f"\nRollback partial. Restored {reverted}/{len(moves)} files. "
+        f"{len(unresolved_moves)} unresolved record(s) retained in history."
+    )
+    return False
 
 
 def extract_pdf_snippet(file_path: Path, max_chars: int = 1000) -> str:
@@ -364,7 +427,7 @@ def extract_pdf_snippet(file_path: Path, max_chars: int = 1000) -> str:
                 t = val.decode("utf-8", errors="ignore").strip()
                 if t:
                     extracted.append(f"{key.decode()}: {t}")
-            except Exception:
+            except (UnicodeDecodeError, ValueError, AttributeError):
                 pass
 
         # Text stream operators (text) Tj
@@ -374,7 +437,7 @@ def extract_pdf_snippet(file_path: Path, max_chars: int = 1000) -> str:
                 t = tm.decode("utf-8", errors="ignore").strip()
                 if len(t) > 1 and t not in extracted:
                     extracted.append(t)
-            except Exception:
+            except (UnicodeDecodeError, ValueError, AttributeError):
                 pass
 
         # Text stream array operators [(part1) 10 (part2)] TJ
@@ -392,12 +455,12 @@ def extract_pdf_snippet(file_path: Path, max_chars: int = 1000) -> str:
                 t = xm.decode("utf-8", errors="ignore").strip()
                 if t and t not in extracted:
                     extracted.append(t)
-            except Exception:
+            except (UnicodeDecodeError, ValueError, AttributeError):
                 pass
 
         snippet = " ".join(extracted).strip()
         return snippet[:max_chars]
-    except Exception:
+    except (OSError, ValueError):
         return ""
 
 
@@ -407,7 +470,7 @@ def extract_file_sample(file_path: Path, max_chars: int = 1000) -> str:
     ext = get_compound_extension(file_path)
     try:
         size = file_path.stat().st_size
-    except Exception:
+    except OSError:
         size = 0
     info = f"Filename: {file_path.name}\nExtension: {ext}\nSize: {size} bytes\n"
 
@@ -423,7 +486,7 @@ def extract_file_sample(file_path: Path, max_chars: int = 1000) -> str:
                 snippet = f.read(max_chars)
                 if snippet:
                     info += f"Content Snippet:\n{snippet}"
-        except Exception:
+        except (OSError, UnicodeDecodeError):
             pass
     elif ext == ".pdf":
         pdf_snippet = extract_pdf_snippet(file_path, max_chars=max_chars)
@@ -470,7 +533,7 @@ class HeuristicRouter:
             ".d.ts", ".spec.ts", ".test.ts", ".spec.js", ".test.js"
         },
         "Data_and_Configs": {
-            ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".conf", ".env", ".tsv"
+            ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".conf", ".env", ".tsv", ".csv"
         },
         "Logs_and_Diagnostics": {
             ".log", ".trace", ".dump", ".dmp", ".stacktrace"
@@ -518,6 +581,9 @@ class HeuristicRouter:
             elif line.startswith("Extension:"):
                 ext = line.split(":", 1)[1].strip().lower()
 
+        if not ext and filename.startswith("."):
+            ext = filename.lower()
+
         is_junk = is_junk_candidate(filename)
 
         # Check financial signals
@@ -528,9 +594,17 @@ class HeuristicRouter:
         # Check manual/documentation signals for PDFs
         is_manual = ext == ".pdf" and any(kw in lower_sample for kw in self.MANUAL_KEYWORDS)
 
+        # Check diagnostic logs in text files with crash/trace keywords
+        is_diag_txt = ext == ".txt" and any(
+            k in lower_sample for k in ("traceback", "stacktrace", "nullpointer", "fatal error", "exception:")
+        )
+
         if is_financial:
             category = "Financial"
             confidence = 0.95
+        elif is_diag_txt:
+            category = "Logs_and_Diagnostics"
+            confidence = 0.90
         elif is_manual:
             category = "Books_and_Manuals"
             confidence = 0.90
@@ -576,7 +650,7 @@ def get_router(force_fallback: bool = False) -> tuple[Any, str]:
     try:
         from laya import Router
         _ROUTER_CACHE = (Router(), "neural")
-    except Exception:
+    except (ImportError, RuntimeError, AttributeError, OSError, TypeError, ValueError):
         _ROUTER_CACHE = (HeuristicRouter(), "heuristic")
     return _ROUTER_CACHE
 
@@ -718,6 +792,19 @@ def execute_plan(
     planned_dest_map = {Path(os.path.abspath(move.source)): move.destination for move in planned_moves}
     actual_dest_map: dict[Path, Path] = {}
 
+    target_dir_str = str(target_dir) if target_dir else ""
+
+    # Record transaction intent before executing moves
+    if target_dir:
+        record_batch_moves(
+            batch_id=batch_id,
+            target_dir=target_dir_str,
+            moves=[],
+            status="in_progress",
+            planned_count=len(planned_moves),
+            history_file=history_file,
+        )
+
     try:
         for move in planned_moves:
             src = move.source
@@ -770,14 +857,39 @@ def execute_plan(
                 "is_symlink": is_symlink,
                 "original_target": original_target,
             })
-    except Exception as e:
-        # On partial failure midway, preserve already moved records in journal so they can be rolled back
-        if moved_records and target_dir:
-            record_batch_moves(batch_id, str(target_dir), moved_records, history_file=history_file)
-        raise e
 
-    if moved_records and target_dir:
-        record_batch_moves(batch_id, str(target_dir), moved_records, history_file=history_file)
+            # Incremental journal record after each move
+            if target_dir:
+                record_batch_moves(
+                    batch_id=batch_id,
+                    target_dir=target_dir_str,
+                    moves=moved_records,
+                    status="in_progress",
+                    planned_count=len(planned_moves),
+                    history_file=history_file,
+                )
+    except Exception:
+        # On partial failure midway, preserve already moved records in journal so they can be rolled back
+        if target_dir:
+            record_batch_moves(
+                batch_id=batch_id,
+                target_dir=target_dir_str,
+                moves=moved_records,
+                status="interrupted",
+                planned_count=len(planned_moves),
+                history_file=history_file,
+            )
+        raise
+
+    if target_dir:
+        record_batch_moves(
+            batch_id=batch_id,
+            target_dir=target_dir_str,
+            moves=moved_records,
+            status="completed",
+            planned_count=len(planned_moves),
+            history_file=history_file,
+        )
 
     return moved_records
 
@@ -884,8 +996,26 @@ class HistoryManager:
         save_history(batches=batches, history_file=history_file)
 
     @staticmethod
-    def record(batch_id: str, target_dir: str, moves: list[dict[str, Any]], history_file: Path | None = None) -> None:
-        record_batch_moves(batch_id=batch_id, target_dir=target_dir, moves=moves, history_file=history_file)
+    def record(
+        batch_id: str,
+        target_dir: str,
+        moves: list[dict[str, Any]],
+        status: str = "completed",
+        planned_count: int | None = None,
+        history_file: Path | None = None,
+    ) -> None:
+        record_batch_moves(
+            batch_id=batch_id,
+            target_dir=target_dir,
+            moves=moves,
+            status=status,
+            planned_count=planned_count,
+            history_file=history_file,
+        )
+
+    @staticmethod
+    def check_pending(history_file: Path | None = None) -> list[dict[str, Any]]:
+        return check_pending_transactions(history_file=history_file)
 
     @staticmethod
     def rollback(batch_id: str | None = None, history_file: Path | None = None) -> bool:
@@ -1195,14 +1325,45 @@ def organize_directory(
             print(json.dumps(res, indent=2))
         return res
 
+    # Execution consent protocol:
+    # 1. If dry_run is requested (and apply not set): strictly preview.
+    # 2. If apply or auto_confirm is provided:
+    #    - If interactive terminal and not auto_confirm: prompt user once to confirm.
+    #    - If non-interactive terminal with apply/auto_confirm: execute.
+    # 3. If neither apply nor auto_confirm is provided:
+    #    - If non-interactive terminal (scripts, pipes, CI): strictly dry_run preview.
+    #      Never treat non-interactive execution as consent to move files!
+    #    - If interactive terminal: display preview and prompt user.
     if dry_run and not apply:
         is_dry_run = True
-        should_execute = False
-    elif apply or auto_confirm or not sys.stdin.isatty():
+    elif apply or auto_confirm:
+        if apply and not auto_confirm and sys.stdin.isatty():
+            table_rows = [
+                [
+                    m.source.name[:32],
+                    f"{m.category}/{m.destination.name}"[:32],
+                    f"{int(m.confidence * 100)}%" if m.confidence is not None else "100%",
+                    m.reason[:36],
+                ]
+                for m in planned_moves
+            ]
+            print(f"\nLaya Organize: {target_path}")
+            print(f"Engine: {engine_type.upper()} | Files to organize: {len(planned_moves)}\n")
+            print(format_table(["File", "Target Destination", "Conf", "Reason"], table_rows, ["left", "left", "right", "left"]))
+            try:
+                confirm = input(f"\nExecute organization for {len(planned_moves)} file(s)? [y/N]: ").strip().lower()
+                if confirm not in ("y", "yes"):
+                    print("Organization cancelled.")
+                    return {"count": 0, "stats": stats, "batch_id": None, "plan": planned_moves}
+            except (KeyboardInterrupt, EOFError):
+                print("\nCancelled.")
+                return {"count": 0, "stats": stats, "batch_id": None, "plan": planned_moves}
         is_dry_run = False
-        should_execute = True
+    elif not sys.stdin.isatty():
+        # Non-interactive without explicit --apply or --yes -> strictly preview!
+        is_dry_run = True
     else:
-        # Interactive TTY without apply/auto_confirm: prompt user
+        # Interactive TTY without apply/auto_confirm: prompt user with preview table
         table_rows = [
             [
                 m.source.name[:32],
@@ -1220,7 +1381,7 @@ def organize_directory(
             if confirm in ("y", "yes"):
                 is_dry_run = False
             else:
-                print("Organization cancelled.")
+                print("Organization cancelled. Pass --apply to execute directly.")
                 return {"count": 0, "stats": stats, "batch_id": None, "plan": planned_moves}
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled.")
@@ -1255,31 +1416,11 @@ def organize_directory(
             print("\nDry Run Summary:")
             for cat, count in sorted(stats.items()):
                 print(f"  * {cat:24} : {count:3d} file(s)")
-            print("\nNote: Simulation only, no files moved. Pass --apply to execute.")
+            if not sys.stdin.isatty() and not (apply or auto_confirm):
+                print("\nNotice: Non-interactive execution defaults to preview. Pass --apply or --yes to execute moves.")
+            else:
+                print("\nNote: Simulation only, no files moved. Pass --apply to execute.")
         return dry_result
-
-    # Confirm if apply passed interactively without auto_confirm
-    if apply and not auto_confirm and sys.stdin.isatty():
-        table_rows = [
-            [
-                m.source.name[:32],
-                f"{m.category}/{m.destination.name}"[:32],
-                f"{int(m.confidence * 100)}%" if m.confidence is not None else "100%",
-                m.reason[:36],
-            ]
-            for m in planned_moves
-        ]
-        print(f"\nLaya Organize: {target_path}")
-        print(f"Engine: {engine_type.upper()} | Files to organize: {len(planned_moves)}\n")
-        print(format_table(["File", "Target Destination", "Conf", "Reason"], table_rows, ["left", "left", "right", "left"]))
-        try:
-            confirm = input(f"\nExecute organization for {len(planned_moves)} file(s)? [y/N]: ").strip().lower()
-            if confirm not in ("y", "yes"):
-                print("Organization cancelled.")
-                return {"count": 0, "stats": stats, "batch_id": None, "plan": planned_moves}
-        except (KeyboardInterrupt, EOFError):
-            print("\nCancelled.")
-            return {"count": 0, "stats": stats, "batch_id": None, "plan": planned_moves}
 
     batch_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if not json_output:

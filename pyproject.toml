@@ -5,11 +5,19 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "laya-file-organizer"
 version = "1.0.0"
-description = "Sub-35ms local file organizer"
+description = "Sub-35ms local intelligent file organization engine"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+neural = [
     "laya>=0.3.26",
+]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.4.0",
+    "build>=1.0.0",
 ]
 
 [project.scripts]
@@ -17,3 +25,18 @@ laya = "laya_organizer:main"
 
 [tool.setuptools]
 py-modules = ["laya_organizer"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "SIM", "RUF", "BLE"]
+ignore = [
+    "E501",   # line length
+    "SIM105", # try-except-pass over contextlib.suppress in fast loops
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+"benchmarks/*" = ["E402"]

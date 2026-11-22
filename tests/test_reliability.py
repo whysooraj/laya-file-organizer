@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import shutil
 import sys
@@ -14,6 +16,7 @@ from laya_organizer import (
     DEFAULT_FOLDER_NAMES,
     HeuristicRouter,
     HistoryManager,
+    check_pending_transactions,
     execute_plan,
     extract_file_sample,
     extract_pdf_snippet,
@@ -86,7 +89,7 @@ def test_symlink_handling():
             "custom_rules": {".txt": "Documents"},
             "folder_names": DEFAULT_FOLDER_NAMES,
         }
-        res = organize_directory(str(root), history_file=history_file, config_override=config_override)
+        res = organize_directory(str(root), apply=True, history_file=history_file, config_override=config_override)
         assert res["count"] >= 2
 
         # Check relative link moved to Documents and its target is intact (not broken!)
@@ -147,7 +150,7 @@ def test_junk_false_positive_prevention():
         (root / "datacache.json").write_text('{"cached": true}')
         (root / "temp_scratch.log").write_text("debug log")
 
-        moves, stats, _ = plan_organization(root)
+        moves, _stats, _ = plan_organization(root)
         plan_dict = {m.source.name: m.category for m in moves}
 
         assert plan_dict["template.py"] == "Code_and_Scripts"
@@ -167,7 +170,7 @@ def test_fallback_classifier_simulation():
         (root / "script.py").write_text("print('test')")
         (root / "picture.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-        res = organize_directory(str(root), router_bundle=(router, engine_type))
+        res = organize_directory(str(root), apply=True, router_bundle=(router, engine_type))
         assert res["count"] == 3
         assert (root / "Financial" / "invoice.csv").exists()
         assert (root / "Code_and_Scripts" / "script.py").exists()
@@ -196,7 +199,7 @@ def test_confidence_threshold_validation():
         (root / "random.xyz").write_text("unknown data")
 
         # High threshold sends low-confidence files to Uncertain
-        moves, stats, _ = plan_organization(root, min_confidence=0.99)
+        moves, _stats, _ = plan_organization(root, min_confidence=0.99)
         assert moves[0].category == "Uncertain"
 
 
@@ -211,7 +214,7 @@ def test_rollback_successful_batch():
         f2 = root / "invoice_march.pdf"
         f2.write_text("Invoice total $300.00")
 
-        res = organize_directory(str(root), history_file=history_file)
+        res = organize_directory(str(root), apply=True, history_file=history_file)
         assert res["count"] == 2
         assert not f1.exists()
         assert not f2.exists()
@@ -253,9 +256,8 @@ def test_rollback_partial_batch():
             return orig_move(src, dst)
 
         batch_id = "partial_test_batch"
-        with patch("shutil.move", side_effect=failing_move):
-            with pytest.raises(OSError, match="Simulated disk error"):
-                execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+        with patch("shutil.move", side_effect=failing_move), pytest.raises(OSError, match="Simulated disk error"):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
 
         # Confirm 2 files were moved before the error
         assert (root / "Code_and_Scripts" / "file1.py").exists()
@@ -300,7 +302,7 @@ def test_safe_collision_resolution():
         new_tar.write_text("New archive content")
 
         history_file = root / "history.json"
-        organize_directory(str(root), history_file=history_file)
+        organize_directory(str(root), apply=True, history_file=history_file)
 
         # Existing files must be untouched
         assert existing_code.read_text() == "Original app script"
@@ -344,3 +346,111 @@ def test_pdf_extractor():
         assert res["answers"]["category"]["choice"] == "Financial"
     finally:
         pdf_path.unlink()
+
+
+def test_non_interactive_execution_defaults_to_dry_run():
+    """Verify that organize_directory in non-interactive environment defaults strictly to dry-run."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        test_file = root / "script.py"
+        test_file.write_text("print('hello')")
+
+        with patch("sys.stdin.isatty", return_value=False):
+            res = organize_directory(
+                target_dir=root,
+                apply=False,
+                auto_confirm=False,
+                dry_run=False,
+            )
+
+        assert res["dry_run"] is True
+        assert res["applied"] is False
+        assert test_file.exists()  # File MUST NOT be moved!
+        assert not (root / "Code_and_Scripts").exists()
+
+
+def test_non_interactive_execution_with_explicit_apply():
+    """Verify that organize_directory moves files non-interactively when --apply is explicitly passed."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        test_file = root / "script.py"
+        test_file.write_text("print('hello')")
+
+        with patch("sys.stdin.isatty", return_value=False):
+            res = organize_directory(
+                target_dir=root,
+                apply=True,
+                auto_confirm=False,
+                dry_run=False,
+                history_file=history_file,
+            )
+
+        assert res["applied"] is True
+        assert not test_file.exists()
+        assert (root / "Code_and_Scripts" / "script.py").exists()
+
+
+def test_incomplete_rollback_retains_failed_moves():
+    """Verify that if destination files are missing or restore fails, the batch is NOT erased from history."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        f1 = root / "script1.py"
+        f2 = root / "script2.py"
+        f1.write_text("code 1")
+        f2.write_text("code 2")
+
+        # Organize with apply
+        res = organize_directory(
+            target_dir=root,
+            apply=True,
+            auto_confirm=True,
+            history_file=history_file,
+        )
+        batch_id = res["batch_id"]
+
+        dest1 = root / "Code_and_Scripts" / "script1.py"
+        dest2 = root / "Code_and_Scripts" / "script2.py"
+        assert dest1.exists()
+        assert dest2.exists()
+
+        # Delete dest1 outside Laya to simulate missing file
+        dest1.unlink()
+
+        # Attempt rollback
+        rollback_success = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+        # Should be False because 1 file could not be restored
+        assert rollback_success is False
+
+        # dest2 was successfully restored
+        assert f2.exists()
+
+        # Crucial check: History MUST STILL CONTAIN the batch and the unresolved move record!
+        batches = HistoryManager.load(history_file=history_file)
+        assert len(batches) == 1
+        assert batches[0]["status"] == "partial_rollback"
+        assert batches[0]["count"] == 1
+        assert Path(batches[0]["moves"][0]["dest"]).name == "script1.py"
+        assert "no longer exists" in batches[0]["moves"][0].get("last_rollback_error", "")
+
+
+def test_atomic_journal_and_interrupted_transaction_tracking():
+    """Verify transaction status lifecycle: in_progress -> completed, and pending transaction detection."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        f1 = root / "app.py"
+        f1.write_text("print('app')")
+
+        moves, _stats, _ = plan_organization(root)
+        batch_id = "test_atomic_batch"
+
+        # Simulate exception midway
+        with patch("shutil.move", side_effect=OSError("Disk write error")), pytest.raises(OSError):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+        pending = check_pending_transactions(history_file=history_file)
+        assert len(pending) == 1
+        assert pending[0]["batch_id"] == batch_id
+        assert pending[0]["status"] == "interrupted"

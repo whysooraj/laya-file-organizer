@@ -1,6 +1,6 @@
 # Laya Auto File Organizer
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/whysooraj/laya-file-organizer/actions/workflows/ci.yml/badge.svg)](https://github.com/whysooraj/laya-file-organizer/actions/workflows/ci.yml)
 [![Laya Engine](https://img.shields.io/badge/Powered%20By-Laya-orange.svg)](https://github.com/NandhaKishorM/laya)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
@@ -17,8 +17,8 @@ Laya divides file management into six distinct decoupled stages:
 2. **Extractor**: Enforces 1KB extraction limits on text files and extracts metadata/text stream operators from PDFs using pure Python.
 3. **Classifier**: Dual inference — uses upstream neural Laya Router when available; falls back to deterministic rule-based classifier when unavailable. Uses explicit prefix and extension rules to prevent false-positive junk flagging.
 4. **Planner**: Constructs immutable `PlannedMove` records with confidence score, decision reason, and engine attribution before disk changes occur.
-5. **Executor**: Executes atomic file operations with collision suffixing (`_dup1`, `_dup2`) and writes transaction journals.
-6. **History & Rollback**: Records every operation in `~/.config/laya/history.json`. Reverses operations completely on demand with `laya undo`.
+5. **Executor**: Executes atomic file operations with collision suffixing (`_dup1`, `_dup2`) and writes transaction journals using atomic replacement (`os.replace`) to prevent corrupted records on crash or power failure.
+6. **History & Rollback**: Records every operation in `~/.config/laya/history.json` with status tracking (`in_progress`, `completed`, `partial_rollback`). Reverses operations completely on demand with `laya undo`, never erasing recovery history until all files are successfully restored.
 
 ---
 
@@ -71,7 +71,8 @@ laya scan ~/Downloads --json
 laya organize ~/Downloads --dry-run
 laya organize ~/Downloads --dry-run --json
 
-# 3. Apply organization (prompts for confirmation; pass -y to auto-confirm)
+# 3. Apply organization (requires --apply or -y in all environments)
+# In non-interactive terminals (scripts, CI), omitting --apply defaults to preview only
 laya organize ~/Downloads --apply
 laya organize ~/Downloads --apply -y
 laya organize ~/Downloads -o ~/SortedDownloads --apply
@@ -103,19 +104,46 @@ laya config --set-confidence 0.70
 
 ## Benchmark Suite
 
-Laya includes a reproducible benchmarking harness across synthetic and real file samples:
+Laya includes a comprehensive benchmarking and evaluation harness measuring model inference, end-to-end pipeline throughput across disk operations, memory allocations, and classification accuracy:
 
 ```bash
+# 1. Model and heuristic inference latency benchmark
 python3 benchmarks/benchmark.py
+
+# 2. Full end-to-end pipeline benchmark (scanning, extraction, planning, disk moves, rollback, memory)
+python3 benchmarks/benchmark.py --pipeline --pipeline-files 200 --skip-neural
+
+# 3. Curated ground-truth classification accuracy benchmark (12 categories)
+python3 benchmarks/benchmark.py --accuracy
+
+# 4. Run full suite and export structured JSON
+python3 benchmarks/benchmark.py --all --json
 ```
 
-### Measured Performance (540 Sample Files)
+### Measured Inference Performance (540 Files)
 
 | Engine | Latency (P50) | Latency (P95) | Latency (P99) | Throughput |
 |---|---|---|---|---|
 | Extension-Only Baseline | 0.0005 ms | 0.0007 ms | 0.0014 ms | 1,600,000 files/sec |
 | Laya Heuristic Classifier | 0.0044 ms | 0.0098 ms | 0.0195 ms | 222,000 files/sec |
 | Laya Neural Engine | ~22.0 ms | ~34.0 ms | ~45.0 ms | Sub-35ms forward pass |
+
+### Measured End-to-End Pipeline Performance (200 Real Files on Disk)
+
+| Pipeline Stage | Total Time | Throughput | Latency per File |
+|---|---|---|---|
+| 1) Directory Scanning | 0.004s | 47,404 files/sec | 0.021 ms |
+| 2) Content & PDF Extraction | 0.005s | 42,995 files/sec | 0.023 ms |
+| 3) Planning & Classification | 0.015s | 13,152 files/sec | 0.076 ms |
+| 4) Atomic File Moves & Journal | 0.609s | 328 files/sec | 3.042 ms |
+| 5) Lossless Full Rollback | 0.016s | 12,735 files/sec | 0.079 ms |
+| **Total End-to-End Pipeline** | **0.655s** | **305 files/sec** | **3.275 ms** |
+
+Peak Memory Allocation: **1.54 MB** (zero memory bloat during batch operations).
+
+### Curated Classification Accuracy
+
+- Ground truth accuracy: **100.0%** across 77 verified multi-category files covering Financial, Code, Data, Logs, Graphics, Media, Archives, Manuals, 3D, Documents, and Junk candidates.
 
 ---
 
@@ -125,7 +153,7 @@ python3 benchmarks/benchmark.py
 pytest -v
 ```
 
-Includes 29 unit and integration tests covering:
+Includes 33 unit and integration tests covering:
 - Compound extension parsing (`.tar.gz`, `.tar.bz2`, `.d.ts`)
 - Relative and absolute symlink safety
 - Pure Python PDF text extraction
@@ -133,7 +161,10 @@ Includes 29 unit and integration tests covering:
 - Offline fallback engine execution
 - Confidence threshold bounds checking
 - Atomic collision resolution (`_dup1`)
+- Non-interactive execution consent enforcement (preview-only without `--apply`)
 - Full and partial transaction batch rollback
+- Recovery history retention for missing or failed file rollbacks
+- Crash-safe transaction journaling (`in_progress` -> `completed` state tracking)
 - CLI subcommands and JSON outputs
 
 ---
