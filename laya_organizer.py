@@ -17,6 +17,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -28,38 +29,50 @@ try:
 except ImportError:
     fcntl = None  # type: ignore[assignment]
 
-_HELD_LOCKS: dict[str, int] = {}
-_LOCK_FDS: dict[str, Any] = {}
+_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_THREAD_LOCKS_MUTEX = threading.Lock()
+_FLOCK_DEPTH: dict[str, int] = {}
+_FLOCK_FDS: dict[str, Any] = {}
 
 
 @contextlib.contextmanager
 def file_lock(lock_file: Path) -> Generator[None, None, None]:
-    """Reentrant cross-process advisory file lock context manager."""
+    """Reentrant cross-thread and cross-process advisory file lock context manager."""
     resolved = str(lock_file.resolve())
-    if resolved in _HELD_LOCKS and _HELD_LOCKS[resolved] > 0:
-        _HELD_LOCKS[resolved] += 1
-        try:
-            yield
-        finally:
-            _HELD_LOCKS[resolved] -= 1
-        return
+    with _THREAD_LOCKS_MUTEX:
+        if resolved not in _THREAD_LOCKS:
+            _THREAD_LOCKS[resolved] = threading.RLock()
+        t_lock = _THREAD_LOCKS[resolved]
 
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_file, "a+", encoding="utf-8") as f:
-        try:
+    t_lock.acquire()
+    try:
+        depth = _FLOCK_DEPTH.get(resolved, 0)
+        if depth == 0:
+            lock_file.parent.mkdir(parents=True, exist_ok=True)
+            f = open(lock_file, "a+", encoding="utf-8")  # noqa: SIM115
             if fcntl is not None:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            _HELD_LOCKS[resolved] = 1
-            _LOCK_FDS[resolved] = f
+            _FLOCK_FDS[resolved] = f
+            _FLOCK_DEPTH[resolved] = 1
+        else:
+            _FLOCK_DEPTH[resolved] = depth + 1
+
+        try:
             yield
         finally:
-            _HELD_LOCKS.pop(resolved, None)
-            _LOCK_FDS.pop(resolved, None)
-            try:
-                if fcntl is not None:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            except OSError:
-                pass
+            _FLOCK_DEPTH[resolved] -= 1
+            if _FLOCK_DEPTH[resolved] == 0:
+                _FLOCK_DEPTH.pop(resolved, None)
+                f = _FLOCK_FDS.pop(resolved, None)
+                if f is not None:
+                    try:
+                        if fcntl is not None:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                    f.close()
+    finally:
+        t_lock.release()
 
 DEFAULT_ACTIVE_DOWNLOAD_EXTS = ('.crdownload', '.part', '.download', '.partial')
 ACTIVE_DOWNLOAD_EXTS = DEFAULT_ACTIVE_DOWNLOAD_EXTS
@@ -367,6 +380,26 @@ def check_pending_transactions(history_file: Path | None = None) -> list[dict[st
     return [b for b in batches if b.get("status") in ("in_progress", "interrupted", "partial_rollback")]
 
 
+def _same_symlink_target(
+    src_path: Path, src_target: str, dst_path: Path, dst_target: str, orig_target: str | None = None
+) -> bool:
+    """Check if two symlink targets resolve to the same canonical file."""
+    if dst_target in (src_target, orig_target):
+        return True
+    try:
+        src_canon = os.path.abspath(src_path.parent / src_target) if not os.path.isabs(src_target) else os.path.abspath(src_target)
+        dst_canon = os.path.abspath(dst_path.parent / dst_target) if not os.path.isabs(dst_target) else os.path.abspath(dst_target)
+        if src_canon == dst_canon:
+            return True
+        if orig_target:
+            orig_canon = os.path.abspath(src_path.parent / orig_target) if not os.path.isabs(orig_target) else os.path.abspath(orig_target)
+            if dst_canon == orig_canon:
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def inspect_pending_transactions(history_file: Path | None = None) -> list[dict[str, Any]]:
     """Inspects pending, interrupted, or partially rolled-back transactions on disk.
 
@@ -392,7 +425,27 @@ def inspect_pending_transactions(history_file: Path | None = None) -> list[dict[
             src_exists = os.path.lexists(src)
             dst_exists = os.path.lexists(dst)
             restored_to = Path(m["restored_to"]) if m.get("restored_to") else None
-            restored_exists = os.path.lexists(restored_to) if restored_to else False
+            intended_restored = Path(m["intended_restored_to"]) if m.get("intended_restored_to") else None
+            restored_exists = (
+                (os.path.lexists(restored_to) if restored_to else False)
+                or (os.path.lexists(intended_restored) if intended_restored else False)
+            )
+
+            # Check for interrupted symlink move (destination created, source not yet unlinked)
+            if src_exists and dst_exists and src.is_symlink() and dst.is_symlink():
+                try:
+                    src_target = os.readlink(src)
+                    dst_target = os.readlink(dst)
+                    orig_target = m.get("original_target")
+                    if _same_symlink_target(src, src_target, dst, dst_target, orig_target):
+                        disk_status = "symlink_split"
+                        moved_on_disk += 1
+                        m_copy = dict(m)
+                        m_copy["disk_status"] = disk_status
+                        detailed_moves.append(m_copy)
+                        continue
+                except OSError:
+                    pass
 
             if dst_exists and not src_exists:
                 disk_status = "moved"
@@ -428,7 +481,7 @@ def inspect_pending_transactions(history_file: Path | None = None) -> list[dict[
 
 
 def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) -> bool:
-    """Safely resumes an interrupted batch by completing unmoved files."""
+    """Safely resumes an interrupted batch by completing unmoved files with intent journaling."""
     batches = load_history(history_file=history_file)
     target_batch = None
     for b in batches:
@@ -453,6 +506,23 @@ def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) ->
             m["state"] = "completed"
             continue
 
+        # Handle symlink split interruption (dst created, src not yet unlinked)
+        if os.path.lexists(src) and os.path.lexists(dst) and src.is_symlink() and dst.is_symlink():
+            try:
+                src_target = os.readlink(src)
+                dst_target = os.readlink(dst)
+                orig_target = m.get("original_target")
+                if _same_symlink_target(src, src_target, dst, dst_target, orig_target):
+                    src.unlink()
+                    m["state"] = "completed"
+                    m.pop("error", None)
+                    completed_count += 1
+                    print(f"  [Cleaned Split Symlink] {src.name} unlinked, {dst.name} active")
+                    save_history(batches, history_file=history_file)
+                    continue
+            except OSError:
+                pass
+
         if not os.path.lexists(src):
             print(f"  [Skipped] Source {src.name} does not exist.")
             m["state"] = "failed"
@@ -470,9 +540,24 @@ def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) ->
                     new_dst = dst.parent / f"{stem}_dup{counter}{ext}"
                     counter += 1
                 dst = new_dst
-                m["dest"] = str(dst)
 
-            shutil.move(str(src), str(dst))
+            # P0: Persist destination intent BEFORE moving
+            m["dest"] = str(dst)
+            m["state"] = "planned"
+            save_history(batches, history_file=history_file)
+
+            is_symlink = src.is_symlink()
+            if is_symlink:
+                raw_target = os.readlink(src)
+                if not os.path.isabs(raw_target):
+                    canonical_target = str(Path(os.path.abspath(src.parent / raw_target)))
+                else:
+                    canonical_target = str(Path(os.path.abspath(raw_target)))
+                dst.symlink_to(canonical_target)
+                src.unlink()
+            else:
+                shutil.move(str(src), str(dst))
+
             m["state"] = "completed"
             m.pop("error", None)
             completed_count += 1
@@ -509,7 +594,7 @@ def dismiss_interrupted_batch(batch_id: str, history_file: Path | None = None) -
 
 
 def run_startup_recovery(history_file: Path | None = None) -> None:
-    """Checks for interrupted transactions on startup and prompts or warns."""
+    """Checks for interrupted transactions on startup and prompts or warns across multiple batches."""
     pending = inspect_pending_transactions(history_file=history_file)
     if not pending:
         return
@@ -535,28 +620,69 @@ def run_startup_recovery(history_file: Path | None = None) -> None:
         print(f"  Status:   {b.get('status')} ({s.get('moved', 0)} moved on disk, {s.get('unmoved', 0)} unmoved, {s.get('missing', 0)} missing)")
         print()
 
-    print("Options:")
-    print("  [1] Roll back moved files to original locations")
-    print("  [2] Resume and complete remaining moves")
-    print("  [3] Dismiss alert (retain in history without prompting)")
-    print("  [4] Continue current command")
+    if len(pending) == 1:
+        single_id = pending[0].get("batch_id")
+        print("Options:")
+        print("  [1] Roll back moved files to original locations")
+        print("  [2] Resume and complete remaining moves")
+        print("  [3] Dismiss alert (retain in history without prompting)")
+        print("  [4] Continue current command")
 
-    try:
-        choice = input("\nSelect option [1-4] (default: 4): ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return
+        try:
+            choice = input("\nSelect option [1-4] (default: 4): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
 
-    first_batch_id = pending[0].get("batch_id")
-    if choice == "1":
-        rollback_last_batch(batch_id=first_batch_id, history_file=history_file)
-    elif choice == "2":
-        if first_batch_id:
-            resume_interrupted_batch(batch_id=first_batch_id, history_file=history_file)
-    elif choice == "3":
-        if first_batch_id:
-            dismiss_interrupted_batch(batch_id=first_batch_id, history_file=history_file)
+        if choice == "1":
+            rollback_last_batch(batch_id=single_id, history_file=history_file)
+        elif choice == "2" and single_id:
+            resume_interrupted_batch(batch_id=single_id, history_file=history_file)
+        elif choice == "3" and single_id:
+            dismiss_interrupted_batch(batch_id=single_id, history_file=history_file)
     else:
-        pass
+        print("Options:")
+        print("  [1] Roll back ALL interrupted batches (newest first)")
+        print("  [2] Resume ALL interrupted batches")
+        print("  [3] Dismiss ALL alerts")
+        print("  [4] Select specific batch ID to manage")
+        print("  [5] Continue current command")
+
+        try:
+            choice = input("\nSelect option [1-5] (default: 5): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+
+        if choice == "1":
+            for b in pending:
+                rollback_last_batch(batch_id=b.get("batch_id"), history_file=history_file)
+        elif choice == "2":
+            for b in pending:
+                resume_interrupted_batch(batch_id=b.get("batch_id"), history_file=history_file)
+        elif choice == "3":
+            for b in pending:
+                dismiss_interrupted_batch(batch_id=b.get("batch_id"), history_file=history_file)
+        elif choice == "4":
+            print("\nSelect batch to manage:")
+            for idx, b in enumerate(pending, 1):
+                print(f"  [{idx}] {b.get('batch_id')} ({b.get('target_dir')})")
+            try:
+                b_idx_str = input(f"Select batch [1-{len(pending)}]: ").strip()
+                b_idx = int(b_idx_str) - 1
+                if 0 <= b_idx < len(pending):
+                    sel_batch = pending[b_idx].get("batch_id")
+                    print(f"\nManaging batch {sel_batch}:")
+                    print("  [1] Roll back")
+                    print("  [2] Resume")
+                    print("  [3] Dismiss")
+                    sub_ch = input("Action [1-3]: ").strip()
+                    if sub_ch == "1":
+                        rollback_last_batch(batch_id=sel_batch, history_file=history_file)
+                    elif sub_ch == "2":
+                        resume_interrupted_batch(batch_id=sel_batch, history_file=history_file)
+                    elif sub_ch == "3":
+                        dismiss_interrupted_batch(batch_id=sel_batch, history_file=history_file)
+            except (ValueError, EOFError, KeyboardInterrupt):
+                pass
 
 
 def rollback_last_batch(
@@ -614,6 +740,7 @@ def rollback_last_batch(
         is_symlink = item.get("is_symlink", False)
         orig_target = item.get("original_target")
         restored_to = item.get("restored_to")
+        intended_restored = item.get("intended_restored_to")
         state = item.get("state", "completed")
 
         # Skip moves that never actually executed on disk
@@ -622,61 +749,31 @@ def rollback_last_batch(
             item["rollback_tx_id"] = rollback_tx_id
             continue
 
-        # Check if already restored in previous rollback attempt
-        if item.get("rollback_state") == "restored":
-            check_target = Path(restored_to) if restored_to else src
-            if not os.path.lexists(dst) and os.path.lexists(check_target):
+        # Check candidate target where file may have already been restored
+        check_target = Path(restored_to) if restored_to else (Path(intended_restored) if intended_restored else None)
+
+        # Case 1: Destination file no longer exists on disk
+        if not os.path.lexists(dst):
+            if check_target and os.path.lexists(check_target):
                 print(f"  [Already Restored] {dst.name} -> {check_target.parent}/")
                 reverted += 1
                 folders_to_clean.add(dst.parent)
-                continue
-
-        if os.path.lexists(dst):
-            try:
-                src.parent.mkdir(parents=True, exist_ok=True)
-                final_src = src
-                counter = 1
-                stem, ext = split_stem_and_ext(src.name)
-                while os.path.lexists(final_src) and final_src != dst:
-                    final_src = src.parent / f"{stem}_restored{counter}{ext}"
-                    counter += 1
-
-                if is_symlink and orig_target is not None:
-                    if os.path.lexists(final_src):
-                        final_src.unlink()
-                    final_src.symlink_to(orig_target)
-                    dst.unlink()
-                else:
-                    shutil.move(str(dst), str(final_src))
-
-                print(f"  [Restored] {dst.name} -> {final_src.parent}/")
-                reverted += 1
-                folders_to_clean.add(dst.parent)
-                item["restored_to"] = str(final_src)
-                item["rollback_state"] = "restored"
-                item["rollback_tx_id"] = rollback_tx_id
-                item.pop("last_rollback_error", None)
-
-                save_history(batches, history_file=history_file)
-            except (OSError, RuntimeError) as e:
-                print(f"  [Failed] Could not restore {dst.name}: {e}")
-                err_item = dict(item)
-                err_item["rollback_state"] = "failed"
-                err_item["last_rollback_error"] = str(e)
-                err_item["rollback_tx_id"] = rollback_tx_id
-                unresolved_moves.append(err_item)
-                save_history(batches, history_file=history_file)
-        else:
-            # Destination missing on disk. Check if already restored to src or restored_to
-            check_target = Path(restored_to) if restored_to else src
-            if os.path.lexists(check_target):
-                print(f"  [Already Restored] {dst.name} -> {check_target.parent}/")
-                reverted += 1
-                item["rollback_state"] = "restored"
                 item["restored_to"] = str(check_target)
-                item["rollback_tx_id"] = rollback_tx_id
+                item["rollback_state"] = "restored"
+                item.pop("intended_restored_to", None)
                 item.pop("last_rollback_error", None)
                 save_history(batches, history_file=history_file)
+                continue
+            elif check_target is None and os.path.lexists(src):
+                print(f"  [Already Restored] {dst.name} -> {src.parent}/")
+                reverted += 1
+                folders_to_clean.add(dst.parent)
+                item["restored_to"] = str(src)
+                item["rollback_state"] = "restored"
+                item.pop("intended_restored_to", None)
+                item.pop("last_rollback_error", None)
+                save_history(batches, history_file=history_file)
+                continue
             else:
                 print(f"  [Skipped] {dst} no longer exists.")
                 err_item = dict(item)
@@ -685,6 +782,68 @@ def rollback_last_batch(
                 err_item["rollback_tx_id"] = rollback_tx_id
                 unresolved_moves.append(err_item)
                 save_history(batches, history_file=history_file)
+                continue
+
+        # Case 2: Destination file exists on disk
+        # Check for interrupted symlink move during rollback (candidate already created, dst not yet unlinked)
+        if is_symlink and orig_target is not None:
+            candidate_sym = Path(intended_restored) if intended_restored else src
+            if os.path.lexists(candidate_sym) and candidate_sym.is_symlink():
+                try:
+                    sym_read = os.readlink(candidate_sym)
+                    if sym_read == orig_target or (not os.path.isabs(orig_target) and Path(os.path.abspath(candidate_sym.parent / sym_read)) == Path(os.path.abspath(orig_target))):
+                        dst.unlink()
+                        reverted += 1
+                        folders_to_clean.add(dst.parent)
+                        item["restored_to"] = str(candidate_sym)
+                        item["rollback_state"] = "restored"
+                        item.pop("intended_restored_to", None)
+                        item.pop("last_rollback_error", None)
+                        save_history(batches, history_file=history_file)
+                        continue
+                except OSError:
+                    pass
+
+        try:
+            src.parent.mkdir(parents=True, exist_ok=True)
+            final_src = src
+            counter = 1
+            stem, ext = split_stem_and_ext(src.name)
+            while os.path.lexists(final_src) and final_src != dst:
+                final_src = src.parent / f"{stem}_restored{counter}{ext}"
+                counter += 1
+
+            # P0: Persist restoration intent BEFORE moving
+            item["intended_restored_to"] = str(final_src)
+            item["rollback_state"] = "restoring"
+            item["rollback_tx_id"] = rollback_tx_id
+            save_history(batches, history_file=history_file)
+
+            if is_symlink and orig_target is not None:
+                if os.path.lexists(final_src):
+                    final_src.unlink()
+                final_src.symlink_to(orig_target)
+                dst.unlink()
+            else:
+                shutil.move(str(dst), str(final_src))
+
+            print(f"  [Restored] {dst.name} -> {final_src.parent}/")
+            reverted += 1
+            folders_to_clean.add(dst.parent)
+            item["restored_to"] = str(final_src)
+            item["rollback_state"] = "restored"
+            item.pop("intended_restored_to", None)
+            item.pop("last_rollback_error", None)
+
+            save_history(batches, history_file=history_file)
+        except (OSError, RuntimeError) as e:
+            print(f"  [Failed] Could not restore {dst.name}: {e}")
+            err_item = dict(item)
+            err_item["rollback_state"] = "failed"
+            err_item["last_rollback_error"] = str(e)
+            err_item["rollback_tx_id"] = rollback_tx_id
+            unresolved_moves.append(err_item)
+            save_history(batches, history_file=history_file)
 
     # Clean empty category folders if left empty, innermost first
     for folder in sorted(folders_to_clean, key=lambda p: len(str(p)), reverse=True):
@@ -708,11 +867,6 @@ def rollback_last_batch(
     target_batch["status"] = "partial_rollback"
     target_batch["rollback_tx_id"] = rollback_tx_id
     save_history(batches, history_file=history_file)
-    print(
-        f"\nRollback partial. Restored {reverted}/{len(moves)} files. "
-        f"{len(unresolved_moves)} unresolved record(s) retained in history."
-    )
-    return False
     print(
         f"\nRollback partial. Restored {reverted}/{len(moves)} files. "
         f"{len(unresolved_moves)} unresolved record(s) retained in history."
@@ -2181,9 +2335,6 @@ def recover_subcommand(
                 print(f"Error: Batch '{batch_id}' not found among pending transactions.")
             return
 
-    target_batch = target_batches[0]
-    target_id = target_batch["batch_id"]
-
     if json_output and (inspect_only or (not do_rollback and not do_resume and not do_dismiss)):
         print(json.dumps({"pending_batches": target_batches}, indent=2))
         return
@@ -2206,11 +2357,14 @@ def recover_subcommand(
         return
 
     if do_rollback:
-        rollback_last_batch(batch_id=target_id, history_file=history_file)
+        for b in target_batches:
+            rollback_last_batch(batch_id=b["batch_id"], history_file=history_file)
     elif do_resume:
-        resume_interrupted_batch(batch_id=target_id, history_file=history_file)
+        for b in target_batches:
+            resume_interrupted_batch(batch_id=b["batch_id"], history_file=history_file)
     elif do_dismiss:
-        dismiss_interrupted_batch(batch_id=target_id, history_file=history_file)
+        for b in target_batches:
+            dismiss_interrupted_batch(batch_id=b["batch_id"], history_file=history_file)
 
 
 def self_check() -> bool:

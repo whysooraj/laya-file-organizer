@@ -662,3 +662,262 @@ def test_recover_subcommand_inspect_and_dismiss(capsys):
         run_startup_recovery(history_file=history_file)
         # Dismissed batch must not trigger recovery alert
         assert len(inspect_pending_transactions(history_file=history_file)) == 0
+
+
+def test_thread_concurrent_journal_updates():
+    """Verify concurrent threads recording batches to history are safely serialized without corruption."""
+    import concurrent.futures
+
+    from laya_organizer import load_history, record_batch_moves
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+
+        num_threads = 10
+        batch_ids = [f"thread_batch_{i}" for i in range(num_threads)]
+
+        def record_worker(b_id: str) -> None:
+            record_batch_moves(
+                batch_id=b_id,
+                target_dir=str(root),
+                moves=[{"source": f"/fake/{b_id}.txt", "dest": f"/fake/out/{b_id}.txt", "state": "completed"}],
+                status="completed",
+                history_file=history_file,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(record_worker, b_id) for b_id in batch_ids]
+            for f in futures:
+                f.result()
+
+        batches = load_history(history_file=history_file)
+        assert len(batches) == num_threads
+        recorded_ids = {b["batch_id"] for b in batches}
+        assert recorded_ids == set(batch_ids)
+
+
+def test_process_concurrent_file_lock():
+    """Verify cross-process mutual exclusion via file_lock advisory lock."""
+    import subprocess
+
+    child_code = """
+import sys
+import time
+from pathlib import Path
+from laya_organizer import file_lock
+
+lock_p = Path(sys.argv[1])
+log_p = Path(sys.argv[2])
+wid = sys.argv[3]
+
+with file_lock(lock_p):
+    with open(log_p, "a") as f:
+        f.write(f"enter {wid}\\n")
+    time.sleep(0.05)
+    with open(log_p, "a") as f:
+        f.write(f"exit {wid}\\n")
+"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        lock_p = str(root / "concurrent.lock")
+        log_p = str(root / "events.log")
+
+        p1 = subprocess.Popen([sys.executable, "-c", child_code, lock_p, log_p, "1"])
+        p2 = subprocess.Popen([sys.executable, "-c", child_code, lock_p, log_p, "2"])
+        p1.wait(timeout=10)
+        p2.wait(timeout=10)
+
+        lines = (root / "events.log").read_text().splitlines()
+        assert len(lines) == 4
+        assert lines[0].startswith("enter")
+        wid1 = lines[0].split()[1]
+        assert lines[1] == f"exit {wid1}"
+        assert lines[2].startswith("enter")
+        wid2 = lines[2].split()[1]
+        assert lines[3] == f"exit {wid2}"
+
+
+def test_symlink_crash_and_split_recovery():
+    """Verify recovery when a symlink move is interrupted between dest creation and source unlink."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+
+        target_file = root / "target.txt"
+        target_file.write_text("Symlink target payload")
+
+        src_symlink = root / "link.txt"
+        os.symlink("target.txt", src_symlink)
+
+        dest_dir = root / "Documents"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_symlink = dest_dir / "link.txt"
+
+        # Simulate interrupted symlink move: dest symlink was created with resolved target, but src_symlink wasn't deleted yet
+        os.symlink(str(target_file.resolve()), dest_symlink)
+
+        # Journal batch in 'in_progress' state
+        from laya_organizer import record_batch_moves
+        batch_id = "symlink_split_batch"
+        moves = [{
+            "source": str(src_symlink),
+            "dest": str(dest_symlink),
+            "state": "planned",
+            "is_symlink": True,
+            "original_target": "target.txt",
+        }]
+        record_batch_moves(
+            batch_id=batch_id,
+            target_dir=str(root),
+            moves=moves,
+            status="in_progress",
+            history_file=history_file,
+        )
+
+        # 1. Inspection should detect symlink_split
+        inspected = inspect_pending_transactions(history_file=history_file)
+        assert len(inspected) == 1
+        assert inspected[0]["moves"][0]["disk_status"] == "symlink_split"
+
+        # 2. Resume should resolve the split by removing the redundant source symlink and marking completed
+        resumed = resume_interrupted_batch(batch_id=batch_id, history_file=history_file)
+        assert resumed is True
+        assert not os.path.lexists(src_symlink)
+        assert os.path.lexists(dest_symlink)
+        assert dest_symlink.is_symlink()
+        assert dest_symlink.read_text() == "Symlink target payload"
+
+        # 3. Rollback should cleanly restore the symlink back to root / "link.txt"
+        rolled = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+        assert rolled is True
+        assert os.path.lexists(src_symlink)
+        assert src_symlink.is_symlink()
+        assert not os.path.lexists(dest_symlink)
+
+
+def test_rollback_occupied_source_with_intent_journaling():
+    """Verify rollback journals intended_restored_to BEFORE disk move and safely avoids collisions."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        downloads = root / "Downloads"
+        downloads.mkdir()
+
+        original_file = downloads / "statement.pdf"
+        original_file.write_text("Original statement content")
+
+        # Organize into Documents
+        config_override = {
+            "custom_rules": {".pdf": "Documents"},
+            "folder_names": DEFAULT_FOLDER_NAMES,
+        }
+        res = organize_directory(str(downloads), apply=True, history_file=history_file, config_override=config_override)
+        batch_id = res["batch_id"]
+
+        moved_dest = downloads / "Documents" / "statement.pdf"
+        assert moved_dest.exists()
+        assert not original_file.exists()
+
+        # Now simulate user putting a NEW statement.pdf at the original path
+        original_file.write_text("New conflicting statement content")
+
+        # Rollback should detect collision and safely redirect to statement_restored1.pdf
+        rolled = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+        assert rolled is True
+
+        # Conflicting file must not be overwritten!
+        assert original_file.read_text() == "New conflicting statement content"
+
+        # Restored file should exist at statement_restored1.pdf
+        restored_file = downloads / "statement_restored1.pdf"
+        assert restored_file.exists()
+        assert restored_file.read_text() == "Original statement content"
+
+
+def test_multi_batch_recovery_and_selection():
+    """Verify multi-batch inspection and selective or bulk recovery operations."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+
+        from laya_organizer import record_batch_moves
+
+        # Create 3 interrupted batches
+        for b_name in ["batch_alpha", "batch_beta", "batch_gamma"]:
+            f = root / f"{b_name}.txt"
+            f.write_text("content")
+            moves = [{"source": str(f), "dest": str(root / "Docs" / f"{b_name}.txt"), "state": "planned"}]
+            record_batch_moves(
+                batch_id=b_name,
+                target_dir=str(root),
+                moves=moves,
+                status="in_progress",
+                history_file=history_file,
+            )
+
+        # Inspect all
+        inspected = inspect_pending_transactions(history_file=history_file)
+        assert len(inspected) == 3
+
+        # Dismiss one specific batch: batch_beta
+        recover_subcommand(batch_id="batch_beta", do_dismiss=True, history_file=history_file)
+        remaining = inspect_pending_transactions(history_file=history_file)
+        assert len(remaining) == 2
+        assert {b["batch_id"] for b in remaining} == {"batch_alpha", "batch_gamma"}
+
+        # Bulk dismiss all remaining
+        recover_subcommand(do_dismiss=True, history_file=history_file)
+        assert len(inspect_pending_transactions(history_file=history_file)) == 0
+
+
+def test_simulated_crash_after_every_mutation():
+    """Verify zero file loss when crashes are injected after each filesystem mutation."""
+    for crash_step in [1, 2]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            history_file = root / "history.json"
+            f1 = root / "doc1.txt"
+            f2 = root / "doc2.txt"
+            f1.write_text("Payload 1")
+            f2.write_text("Payload 2")
+
+            config_override = {
+                "custom_rules": {".txt": "TextFiles"},
+                "folder_names": DEFAULT_FOLDER_NAMES,
+            }
+            moves, _, _ = plan_organization(root, config_override=config_override)
+            assert len(moves) == 2
+
+            # Simulate execute_plan crashing after moving file `crash_step`
+            batch_id = f"crash_step_{crash_step}"
+            call_count = [0]
+
+            def move_with_crash(src, dst, _step=crash_step, _count=call_count, _real=shutil.move):
+                _count[0] += 1
+                _real(src, dst)
+                if _count[0] == _step:
+                    raise RuntimeError(f"Simulated power crash after move {_count[0]}")
+
+            with patch("shutil.move", side_effect=move_with_crash), pytest.raises(RuntimeError):
+                execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+            # Check that pending transaction is detected
+            pending = inspect_pending_transactions(history_file=history_file)
+            assert len(pending) == 1
+
+            # Resume the interrupted batch to finish all moves
+            resumed = resume_interrupted_batch(batch_id=batch_id, history_file=history_file)
+            assert resumed is True
+
+            # Assert all files are safely at their destination with payload intact
+            dest1 = root / "TextFiles" / "doc1.txt"
+            dest2 = root / "TextFiles" / "doc2.txt"
+            assert dest1.exists() and dest1.read_text() == "Payload 1"
+            assert dest2.exists() and dest2.read_text() == "Payload 2"
+
+            # Roll back and assert all files safely returned to root with payload intact
+            rolled = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+            assert rolled is True
+            assert f1.exists() and f1.read_text() == "Payload 1"
+            assert f2.exists() and f2.read_text() == "Payload 2"
