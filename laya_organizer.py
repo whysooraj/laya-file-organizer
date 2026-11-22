@@ -60,8 +60,114 @@ def get_laya_questions() -> dict[str, Any]:
         }
     }
 
+class HeuristicRouter:
+    """Built-in fast heuristic classifier when upstream laya neural engine or PyTorch is unavailable."""
+    
+    EXT_GROUPS = {
+        "Code_and_Scripts": {
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".c", ".cpp", ".cc", ".h", ".hpp",
+            ".cs", ".java", ".html", ".css", ".scss", ".sass", ".sh", ".bash", ".zsh", ".sql",
+            ".php", ".rb", ".swift", ".kt", ".lua", ".r", ".m", ".asm"
+        },
+        "Data_and_Configs": {
+            ".json", ".yaml", ".yml", ".toml", ".xml", ".ini", ".conf", ".env", ".tsv"
+        },
+        "Logs_and_Diagnostics": {
+            ".log", ".trace", ".dump", ".dmp", ".stacktrace"
+        },
+        "Images_and_Graphics": {
+            ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".bmp", ".ico", ".tiff", ".psd", ".ai"
+        },
+        "Audio_and_Music": {
+            ".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a", ".wma", ".opus"
+        },
+        "Video_and_Movies": {
+            ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v"
+        },
+        "Archives_and_Installers": {
+            ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".iso", ".deb", ".rpm", ".appimage", ".exe", ".dmg", ".pkg", ".msi"
+        },
+        "Books_and_Manuals": {
+            ".epub", ".mobi", ".azw3", ".cbr", ".cbz"
+        },
+        "Design_and_3D": {
+            ".stl", ".obj", ".blend", ".step", ".stp", ".fbx", ".3ds", ".dxf", ".dwg"
+        },
+        "Documents": {
+            ".docx", ".doc", ".odt", ".rtf", ".txt", ".pages", ".md", ".tex", ".pptx", ".ppt"
+        }
+    }
+
+    FINANCIAL_KEYWORDS = {
+        "invoice", "receipt", "billing", "bill", "tax", "statement", "paystub", "payroll",
+        "salary", "expense", "bank", "financial", "payment", "due", "amount", "usd", "inr"
+    }
+
+    MANUAL_KEYWORDS = {
+        "manual", "handbook", "guide", "documentation", "tutorial", "spec", "specification"
+    }
+
+    def predict(self, sample_text: str, questions: dict[str, Any]) -> dict[str, Any]:
+        lower_sample = sample_text.lower()
+        ext = ""
+        for line in sample_text.splitlines():
+            if line.startswith("Extension:"):
+                ext = line.split(":", 1)[1].strip().lower()
+                break
+
+        # Check financial signals
+        is_financial = any(kw in lower_sample for kw in self.FINANCIAL_KEYWORDS) and (
+            ext in {".pdf", ".csv", ".xlsx", ".xls", ".txt"} or not ext
+        )
+
+        # Check manual/documentation signals for PDFs
+        is_manual = ext == ".pdf" and any(kw in lower_sample for kw in self.MANUAL_KEYWORDS)
+
+        # Check junk signals
+        junk_exts = {".tmp", ".temp", ".bak", ".old", ".swp", ".cache", ".crdownload", ".part", ".download"}
+        is_junk = ext in junk_exts or "temp" in lower_sample or "cache" in lower_sample
+
+        if is_financial:
+            category = "Financial"
+            confidence = 0.95
+        elif is_manual:
+            category = "Books_and_Manuals"
+            confidence = 0.90
+        elif ext == ".pdf":
+            category = "Documents"
+            confidence = 0.88
+        else:
+            category = "Other"
+            confidence = 0.70
+            for cat, exts in self.EXT_GROUPS.items():
+                if ext in exts:
+                    category = cat
+                    confidence = 0.95
+                    break
+
+        return {
+            "answers": {
+                "category": {
+                    "choice": category,
+                    "confidence": confidence
+                },
+                "is_temporary_junk": {
+                    "noul": 0.95 if is_junk else 0.05
+                }
+            }
+        }
+
+def get_router():
+    """Returns upstream Laya Router if installed; otherwise falls back to fast HeuristicRouter."""
+    try:
+        from laya import Router
+        return Router(), "neural"
+    except Exception as e:
+        print(f"Notice: Laya neural engine unavailable ({e}). Using built-in fast heuristic classifier.")
+        return HeuristicRouter(), "heuristic"
+
 def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = False, min_confidence: float = 0.50):
-    from laya import Router
+    router, engine_type = get_router()
     
     target_path = Path(target_dir).expanduser().resolve()
     if not target_path.exists() or not target_path.is_dir():
@@ -124,8 +230,7 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
 
 def self_check():
     """ponytail: minimal runnable test for expanded laya decision logic"""
-    from laya import Router
-    router = Router()
+    router, engine = get_router()
     q = get_laya_questions()
     
     samples = [
@@ -139,7 +244,7 @@ def self_check():
         assert got == expected, f"Expected {expected}, got {got}"
     print("Self-check passed: All expanded categories classified correctly!")
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Laya Sub-35ms Auto File Organizer")
     parser.add_argument("target_dir", nargs="?", default=".", help="Directory to organize (default: current dir)")
     parser.add_argument("-o", "--output-dir", help="Destination base folder (default: inside target_dir)")
@@ -153,3 +258,6 @@ if __name__ == "__main__":
         self_check()
     else:
         organize_directory(args.target_dir, args.output_dir, dry_run=args.dry_run, min_confidence=args.confidence)
+
+if __name__ == "__main__":
+    main()

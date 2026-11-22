@@ -21,16 +21,27 @@ An ultra-fast, intelligent file organizer powered by **[Laya](https://github.com
 
 ## Quickstart
 
-### 1. Installation
+### 1. One-Line Install (macOS & Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/whysooraj/laya-file-organizer/master/install.sh | bash
+```
+
+### 2. Manual Clone & Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/whysooraj/laya-file-organizer.git
 cd laya-file-organizer
 
-# Install dependencies
-pip install -r requirements.txt
+# Optional: Install neural Laya engine (Requires Python 3.10+)
+python3 -m pip install -r requirements.txt
 ```
+
+> **macOS Note**: 
+> - Modern macOS does not include a `python` command; always run with `python3`.
+> - The default macOS system Python (`/usr/bin/python3`) is Python 3.9. If you run without Python 3.10+, Laya automatically uses its built-in fast classifier with zero external dependencies.
+> - To enable the optional neural engine on macOS: `brew install python@3.12 && python3.12 -m pip install -r requirements.txt`.
 
 ### 2. Usage Examples
 
