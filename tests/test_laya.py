@@ -5,7 +5,18 @@ from pathlib import Path
 # Ensure parent directory is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from laya_organizer import ACTIVE_DOWNLOAD_EXTS, extract_file_sample, get_laya_questions, HeuristicRouter, get_router
+from laya_organizer import (
+    ACTIVE_DOWNLOAD_EXTS,
+    extract_file_sample,
+    get_laya_questions,
+    HeuristicRouter,
+    get_router,
+    organize_directory,
+    rollback_last_batch,
+    load_config,
+    save_config,
+    load_history,
+)
 
 
 def test_active_download_exts():
@@ -71,3 +82,33 @@ def test_heuristic_router_junk():
     q = get_laya_questions()
     res = router.predict("Filename: temp_scrap.tmp\nExtension: .tmp\n", q)
     assert res["answers"]["is_temporary_junk"]["noul"] > 0.70
+
+def test_organize_and_rollback():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_dir = Path(tmpdir)
+        file1 = test_dir / "invoice_march.pdf"
+        file1.write_text("Invoice total $300.00")
+        file2 = test_dir / "app.py"
+        file2.write_text("print('hello')")
+
+        # Live run
+        res = organize_directory(str(test_dir), dry_run=False)
+        assert res["count"] == 2
+        assert not file1.exists()
+        assert not file2.exists()
+        assert (test_dir / "Financial" / "invoice_march.pdf").exists()
+        assert (test_dir / "Code_and_Scripts" / "app.py").exists()
+
+        # Rollback
+        success = rollback_last_batch(res["batch_id"])
+        assert success is True
+        assert file1.exists()
+        assert file2.exists()
+        assert not (test_dir / "Financial").exists()
+        assert not (test_dir / "Code_and_Scripts").exists()
+
+def test_config_roundtrip():
+    cfg = load_config()
+    assert "folder_names" in cfg
+    assert "ignored_extensions" in cfg
+    assert "default_confidence" in cfg
