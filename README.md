@@ -17,8 +17,8 @@ Laya divides file management into six distinct decoupled stages:
 2. **Extractor**: Enforces 1KB extraction limits on text files and extracts metadata/text stream operators from PDFs using pure Python.
 3. **Classifier**: Dual inference — uses upstream neural Laya Router when available; falls back to deterministic rule-based classifier when unavailable. Uses explicit prefix and extension rules to prevent false-positive junk flagging.
 4. **Planner**: Constructs immutable `PlannedMove` records with confidence score, decision reason, and engine attribution before disk changes occur.
-5. **Executor**: Executes atomic file operations with collision suffixing (`_dup1`, `_dup2`) and writes transaction journals using atomic replacement (`os.replace`) to prevent corrupted records on crash or power failure.
-6. **History & Rollback**: Records every operation in `~/.config/laya/history.json` with status tracking (`in_progress`, `completed`, `partial_rollback`). Reverses operations completely on demand with `laya undo`, never erasing recovery history until all files are successfully restored.
+5. **Executor**: Executes file operations with per-file intent journaling (`planned` -> `completed`), collision resolution (`_dup1`, `_dup2`), cross-process advisory locking (`file_lock`), and atomic journal replacement with parent directory `fsync` to eliminate crash windows.
+6. **History & Rollback**: Records every operation in `~/.config/laya/history.json` with lifecycle tracking (`in_progress`, `completed`, `partial_rollback`). Reverses operations completely on demand with `laya undo`, featuring idempotent retries, incremental per-file persistence, and lossless retention of unresolved records. Provides `laya recover` for automated and interactive crash recovery.
 
 ---
 
@@ -98,6 +98,12 @@ laya config
 laya config --set-naming short
 laya config --add-rule .torrent Torrents
 laya config --set-confidence 0.70
+
+# 9. Transaction recovery for interrupted batches
+laya recover --inspect
+laya recover --rollback
+laya recover --resume
+laya recover --dismiss
 ```
 
 ---
@@ -113,8 +119,9 @@ python3 benchmarks/benchmark.py
 # 2. Full end-to-end pipeline benchmark (scanning, extraction, planning, disk moves, rollback, memory)
 python3 benchmarks/benchmark.py --pipeline --pipeline-files 200 --skip-neural
 
-# 3. Curated ground-truth classification accuracy benchmark (12 categories)
-python3 benchmarks/benchmark.py --accuracy
+# 3. Curated ground-truth classification evaluation (100 verified samples, 12 categories)
+python3 benchmarks/benchmark.py --accuracy --heuristic
+python3 benchmarks/benchmark.py --accuracy --neural
 
 # 4. Run full suite and export structured JSON
 python3 benchmarks/benchmark.py --all --json
@@ -141,9 +148,11 @@ python3 benchmarks/benchmark.py --all --json
 
 Peak Memory Allocation: **1.54 MB** (zero memory bloat during batch operations).
 
-### Curated Classification Accuracy
+### Curated Classification Evaluation (100 Verified Samples)
 
-- Ground truth accuracy: **100.0%** across 77 verified multi-category files covering Financial, Code, Data, Logs, Graphics, Media, Archives, Manuals, 3D, Documents, and Junk candidates.
+- Deterministic rule coverage: **100.0%** across exactly 100 curated multi-category files covering Financial, Code, Data, Logs, Graphics, Media, Archives, Manuals, 3D, Documents, and Junk candidates.
+- Evaluates challenging edge-cases: misleading compound extensions (`.pdf.py`), hidden dotfiles (`.env`, `.env.production`), build artifacts (`.d.ts`, `.spec.ts`), and ambiguous files.
+- Note: 100% test accuracy confirms complete rule coverage for defined extensions and keywords; it does not imply 100% open-world generalization. Synthetic latency benchmarks are measured separately from real-world classification evaluation.
 
 ---
 
@@ -153,8 +162,8 @@ Peak Memory Allocation: **1.54 MB** (zero memory bloat during batch operations).
 pytest -v
 ```
 
-Includes 33 unit and integration tests covering:
-- Compound extension parsing (`.tar.gz`, `.tar.bz2`, `.d.ts`)
+Includes 38 unit, reliability, and crash-recovery tests covering:
+- Compound extension parsing (`.tar.gz`, `.tar.bz2`, `.d.ts`, `.spec.ts`)
 - Relative and absolute symlink safety
 - Pure Python PDF text extraction
 - Substring false-positive prevention (`template.py` not marked as junk)
@@ -164,7 +173,10 @@ Includes 33 unit and integration tests covering:
 - Non-interactive execution consent enforcement (preview-only without `--apply`)
 - Full and partial transaction batch rollback
 - Recovery history retention for missing or failed file rollbacks
-- Crash-safe transaction journaling (`in_progress` -> `completed` state tracking)
+- Advisory file locking (`fcntl.flock`) and crash-safe transaction journaling
+- Per-file intent journaling (`planned` -> `completed` transition)
+- Idempotent rollback retries with distinct rollback transaction IDs
+- Startup crash inspection and interactive/non-interactive recovery (`laya recover`)
 - CLI subcommands and JSON outputs
 
 ---

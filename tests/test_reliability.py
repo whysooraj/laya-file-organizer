@@ -16,16 +16,23 @@ from laya_organizer import (
     DEFAULT_FOLDER_NAMES,
     HeuristicRouter,
     HistoryManager,
+    atomic_write_json,
     check_pending_transactions,
+    dismiss_interrupted_batch,
     execute_plan,
     extract_file_sample,
     extract_pdf_snippet,
+    file_lock,
     get_compound_extension,
     get_router,
+    inspect_pending_transactions,
     is_junk_candidate,
     organize_directory,
     plan_organization,
+    recover_subcommand,
+    resume_interrupted_batch,
     rollback_last_batch,
+    run_startup_recovery,
     split_stem_and_ext,
     validate_confidence_threshold,
 )
@@ -454,3 +461,204 @@ def test_atomic_journal_and_interrupted_transaction_tracking():
         assert len(pending) == 1
         assert pending[0]["batch_id"] == batch_id
         assert pending[0]["status"] == "interrupted"
+
+
+def test_file_lock_reentrancy_and_atomic_write():
+    """Verify advisory lock reentrancy and atomic mkstemp write durability."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        lock_path = root / "journal.lock"
+        target_json = root / "data.json"
+
+        # Reentrant nesting must not deadlock or raise
+        with file_lock(lock_path), file_lock(lock_path):
+            atomic_write_json(target_json, {"status": "ok", "retries": 3})
+
+        assert target_json.exists()
+        import json
+        with open(target_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        assert data["status"] == "ok"
+        assert data["retries"] == 3
+
+
+def test_per_file_intent_journaling():
+    """Verify each move records planned intent in journal before file is moved."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        f1 = root / "module.py"
+        f1.write_text("print('module')")
+
+        moves, _, _ = plan_organization(root)
+        batch_id = "intent_batch"
+
+        # Hook shutil.move to inspect journal mid-operation before actual disk move completes
+        checked_planned_intent = False
+
+        orig_move = shutil.move
+
+        def inspecting_move(src, dst):
+            nonlocal checked_planned_intent
+            batches = HistoryManager.load(history_file=history_file)
+            assert len(batches) == 1
+            batch = batches[0]
+            assert batch["status"] == "in_progress"
+            assert len(batch["moves"]) == 1
+            # Move must be recorded as 'planned' with source and intended destination
+            assert batch["moves"][0]["state"] == "planned"
+            assert batch["moves"][0]["source"] == str(src)
+            checked_planned_intent = True
+            return orig_move(src, dst)
+
+        with patch("shutil.move", side_effect=inspecting_move):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+        assert checked_planned_intent is True
+
+        # After execution completes, journal must show state as completed
+        batches = HistoryManager.load(history_file=history_file)
+        assert batches[0]["status"] == "completed"
+        assert batches[0]["moves"][0]["state"] == "completed"
+
+
+def test_idempotent_rollback_retry():
+    """Verify rollback handles retry without misreporting already-restored files as errors."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+
+        f1 = root / "scriptA.py"
+        f2 = root / "scriptB.py"
+        f1.write_text("code a")
+        f2.write_text("code b")
+
+        res = organize_directory(str(root), apply=True, auto_confirm=True, history_file=history_file)
+        batch_id = res["batch_id"]
+
+        dest1 = root / "Code_and_Scripts" / "scriptA.py"
+        dest2 = root / "Code_and_Scripts" / "scriptB.py"
+        assert dest1.exists()
+        assert dest2.exists()
+
+        # Simulate interruption during first rollback attempt after restoring scriptA.py
+        orig_move = shutil.move
+        restored_count = 0
+
+        def failing_second_rollback(src, dst):
+            nonlocal restored_count
+            restored_count += 1
+            if restored_count > 1:
+                raise OSError("Simulated interruption during rollback of scriptB.py")
+            return orig_move(src, dst)
+
+        with patch("shutil.move", side_effect=failing_second_rollback):
+            partial_ok = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+            assert partial_ok is False
+
+        # Reversed order means scriptB was restored first, scriptA remained at destination
+        assert f2.exists()
+        assert not dest2.exists()
+        assert dest1.exists()
+
+        # Inspect history: batch is partial_rollback, scriptB recorded as restored
+        batches = HistoryManager.load(history_file=history_file)
+        assert len(batches) == 1
+        assert batches[0]["status"] == "partial_rollback"
+
+        # RETRY ROLLBACK: Must recognize scriptB as already restored, restore scriptA, and succeed!
+        success_retry = rollback_last_batch(batch_id=batch_id, history_file=history_file)
+        assert success_retry is True
+
+        # Both files are back at original locations
+        assert f1.exists()
+        assert f2.exists()
+        assert not dest1.exists()
+        assert not dest2.exists()
+
+        # Batch is cleanly removed from history
+        batches_after = HistoryManager.load(history_file=history_file)
+        assert len(batches_after) == 0
+
+
+def test_startup_recovery_inspection_and_resume():
+    """Verify inspection detects interrupted batches and resume completes remaining files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+
+        f1 = root / "task1.py"
+        f2 = root / "task2.py"
+        f1.write_text("task 1")
+        f2.write_text("task 2")
+
+        moves, _, _ = plan_organization(root)
+        batch_id = "interrupted_test_batch"
+
+        # Fail on second file move
+        orig_move = shutil.move
+        counter = 0
+
+        def fail_on_second(src, dst):
+            nonlocal counter
+            counter += 1
+            if counter > 1:
+                raise OSError("Simulated crash on 2nd move")
+            return orig_move(src, dst)
+
+        with patch("shutil.move", side_effect=fail_on_second), pytest.raises(OSError):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+        # Inspect pending transactions
+        inspected = inspect_pending_transactions(history_file=history_file)
+        assert len(inspected) == 1
+        summary = inspected[0]["disk_summary"]
+        assert summary["total"] == 2
+        assert summary["moved"] == 1
+        assert summary["unmoved"] == 1
+
+        # Resume batch: moves remaining task2.py
+        resume_ok = resume_interrupted_batch(batch_id=batch_id, history_file=history_file)
+        assert resume_ok is True
+        assert (root / "Code_and_Scripts" / "task1.py").exists()
+        assert (root / "Code_and_Scripts" / "task2.py").exists()
+
+        # Pending should now be 0
+        assert len(inspect_pending_transactions(history_file=history_file)) == 0
+
+
+def test_recover_subcommand_inspect_and_dismiss(capsys):
+    """Verify recover subcommand inspect JSON output and dismiss workflow."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root = Path(tmpdir)
+        history_file = root / "history.json"
+        f1 = root / "alpha.py"
+        f1.write_text("alpha")
+
+        moves, _, _ = plan_organization(root)
+        batch_id = "dismiss_test_batch"
+
+        with patch("shutil.move", side_effect=OSError("Disk full")), pytest.raises(OSError):
+            execute_plan(moves, batch_id=batch_id, target_dir=root, history_file=history_file)
+
+        # Test inspect via recover_subcommand
+        recover_subcommand(
+            batch_id=batch_id,
+            inspect_only=True,
+            json_output=True,
+            history_file=history_file,
+        )
+        captured = capsys.readouterr()
+        import json
+        data = json.loads(captured.out)
+        assert "pending_batches" in data
+        assert data["pending_batches"][0]["batch_id"] == batch_id
+
+        # Dismiss batch
+        dismiss_ok = dismiss_interrupted_batch(batch_id=batch_id, history_file=history_file)
+        assert dismiss_ok is True
+
+        # Non-interactive startup recovery warning
+        run_startup_recovery(history_file=history_file)
+        # Dismissed batch must not trigger recovery alert
+        assert len(inspect_pending_transactions(history_file=history_file)) == 0

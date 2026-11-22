@@ -8,6 +8,7 @@ Categorizes files, manages transactions with rollback, and offers interactive te
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import hashlib
 import json
@@ -15,10 +16,50 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+
+_HELD_LOCKS: dict[str, int] = {}
+_LOCK_FDS: dict[str, Any] = {}
+
+
+@contextlib.contextmanager
+def file_lock(lock_file: Path) -> Generator[None, None, None]:
+    """Reentrant cross-process advisory file lock context manager."""
+    resolved = str(lock_file.resolve())
+    if resolved in _HELD_LOCKS and _HELD_LOCKS[resolved] > 0:
+        _HELD_LOCKS[resolved] += 1
+        try:
+            yield
+        finally:
+            _HELD_LOCKS[resolved] -= 1
+        return
+
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_file, "a+", encoding="utf-8") as f:
+        try:
+            if fcntl is not None:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            _HELD_LOCKS[resolved] = 1
+            _LOCK_FDS[resolved] = f
+            yield
+        finally:
+            _HELD_LOCKS.pop(resolved, None)
+            _LOCK_FDS.pop(resolved, None)
+            try:
+                if fcntl is not None:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
 
 DEFAULT_ACTIVE_DOWNLOAD_EXTS = ('.crdownload', '.part', '.download', '.partial')
 ACTIVE_DOWNLOAD_EXTS = DEFAULT_ACTIVE_DOWNLOAD_EXTS
@@ -196,19 +237,30 @@ def validate_confidence_threshold(val: Any) -> float:
 
 
 def atomic_write_json(path: Path, data: Any, indent: int = 2) -> None:
-    """Atomically writes JSON to disk via temporary file, fsync, and os.replace."""
+    """Atomically writes JSON to disk via tempfile.mkstemp, fsync, os.replace, and parent dir fsync."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_file = path.with_suffix(f".tmp.{os.getpid()}_{int(time.time() * 1000)}")
+    parent_dir = path.parent
+    fd, temp_path_str = tempfile.mkstemp(dir=parent_dir, prefix=f".{path.name}.tmp.")
+    temp_path = Path(temp_path_str)
     try:
-        with open(temp_file, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=indent)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(temp_file, path)
-    except Exception:
-        if temp_file.exists():
+        os.replace(temp_path, path)
+        dir_flag = getattr(os, "O_DIRECTORY", 0)
+        try:
+            dir_fd = os.open(str(parent_dir), os.O_RDONLY | dir_flag)
             try:
-                temp_file.unlink()
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
+    except Exception:
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
             except OSError:
                 pass
         raise
@@ -249,22 +301,26 @@ def save_config(config: dict[str, Any]) -> None:
 
 
 def load_history(history_file: Path | None = None) -> list[dict[str, Any]]:
-    """Loads move journal history from history.json."""
+    """Loads move journal history from history.json with advisory locking."""
     target_history = history_file or HISTORY_FILE
     if not target_history.exists():
         return []
-    try:
-        with open(target_history, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data.get("batches", [])
-    except (OSError, json.JSONDecodeError, ValueError, KeyError):
-        return []
+    lock_file = target_history.with_suffix(".lock")
+    with file_lock(lock_file):
+        try:
+            with open(target_history, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("batches", [])
+        except (OSError, json.JSONDecodeError, ValueError, KeyError):
+            return []
 
 
 def save_history(batches: list[dict[str, Any]], history_file: Path | None = None) -> None:
-    """Saves move journal history atomically."""
+    """Saves move journal history atomically with advisory locking."""
     target_history = history_file or HISTORY_FILE
-    atomic_write_json(target_history, {"batches": batches[-50:]})
+    lock_file = target_history.with_suffix(".lock")
+    with file_lock(lock_file):
+        atomic_write_json(target_history, {"batches": batches[-50:]})
 
 
 def record_batch_moves(
@@ -275,28 +331,34 @@ def record_batch_moves(
     planned_count: int | None = None,
     history_file: Path | None = None,
 ) -> None:
-    """Atomically records or updates a sorting batch in history journal."""
-    batches = load_history(history_file=history_file)
-    existing_idx = None
-    for idx, b in enumerate(batches):
-        if b.get("batch_id") == batch_id:
-            existing_idx = idx
-            break
+    """Atomically records or updates a sorting batch in history journal with advisory locking."""
+    target_history = history_file or HISTORY_FILE
+    lock_file = target_history.with_suffix(".lock")
+    with file_lock(lock_file):
+        batches = load_history(history_file=target_history)
+        existing_idx = None
+        for idx, b in enumerate(batches):
+            if b.get("batch_id") == batch_id:
+                existing_idx = idx
+                break
 
-    entry = {
-        "batch_id": batch_id,
-        "timestamp": datetime.datetime.now().isoformat(),
-        "target_dir": str(target_dir),
-        "status": status,
-        "planned_count": planned_count if planned_count is not None else len(moves),
-        "count": len(moves),
-        "moves": moves,
-    }
-    if existing_idx is not None:
-        batches[existing_idx] = entry
-    else:
-        batches.append(entry)
-    save_history(batches, history_file=history_file)
+        completed_count = sum(1 for m in moves if m.get("state") == "completed")
+        effective_count = completed_count if any("state" in m for m in moves) else len(moves)
+
+        entry = {
+            "batch_id": batch_id,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "target_dir": str(target_dir),
+            "status": status,
+            "planned_count": planned_count if planned_count is not None else len(moves),
+            "count": effective_count,
+            "moves": moves,
+        }
+        if existing_idx is not None:
+            batches[existing_idx] = entry
+        else:
+            batches.append(entry)
+        save_history(batches, history_file=target_history)
 
 
 def check_pending_transactions(history_file: Path | None = None) -> list[dict[str, Any]]:
@@ -305,14 +367,211 @@ def check_pending_transactions(history_file: Path | None = None) -> list[dict[st
     return [b for b in batches if b.get("status") in ("in_progress", "interrupted", "partial_rollback")]
 
 
+def inspect_pending_transactions(history_file: Path | None = None) -> list[dict[str, Any]]:
+    """Inspects pending, interrupted, or partially rolled-back transactions on disk.
+
+    Examines actual file existence for sources and destinations to determine
+    the precise status of every move in interrupted batches without mutating anything.
+    """
+    batches = load_history(history_file=history_file)
+    pending = [b for b in batches if b.get("status") in ("in_progress", "interrupted", "partial_rollback")]
+    inspected_batches = []
+
+    for b in pending:
+        batch_info = dict(b)
+        moves = b.get("moves", [])
+        detailed_moves = []
+        moved_on_disk = 0
+        unmoved_on_disk = 0
+        conflict_on_disk = 0
+        missing_on_disk = 0
+
+        for m in moves:
+            src = Path(m["source"])
+            dst = Path(m["dest"])
+            src_exists = os.path.lexists(src)
+            dst_exists = os.path.lexists(dst)
+            restored_to = Path(m["restored_to"]) if m.get("restored_to") else None
+            restored_exists = os.path.lexists(restored_to) if restored_to else False
+
+            if dst_exists and not src_exists:
+                disk_status = "moved"
+                moved_on_disk += 1
+            elif src_exists and not dst_exists:
+                disk_status = "unmoved"
+                unmoved_on_disk += 1
+            elif src_exists and dst_exists:
+                disk_status = "conflict"
+                conflict_on_disk += 1
+            elif restored_exists:
+                disk_status = "restored"
+                unmoved_on_disk += 1
+            else:
+                disk_status = "missing"
+                missing_on_disk += 1
+
+            m_copy = dict(m)
+            m_copy["disk_status"] = disk_status
+            detailed_moves.append(m_copy)
+
+        batch_info["moves"] = detailed_moves
+        batch_info["disk_summary"] = {
+            "total": len(moves),
+            "moved": moved_on_disk,
+            "unmoved": unmoved_on_disk,
+            "conflict": conflict_on_disk,
+            "missing": missing_on_disk,
+        }
+        inspected_batches.append(batch_info)
+
+    return inspected_batches
+
+
+def resume_interrupted_batch(batch_id: str, history_file: Path | None = None) -> bool:
+    """Safely resumes an interrupted batch by completing unmoved files."""
+    batches = load_history(history_file=history_file)
+    target_batch = None
+    for b in batches:
+        if b.get("batch_id") == batch_id:
+            target_batch = b
+            break
+
+    if target_batch is None:
+        print(f"Error: Batch '{batch_id}' not found.")
+        return False
+
+    moves = target_batch.get("moves", [])
+    completed_count = 0
+    failed_count = 0
+
+    print(f"\nResuming interrupted batch {batch_id}...")
+    for m in moves:
+        src = Path(m["source"])
+        dst = Path(m["dest"])
+
+        if m.get("state") == "completed" or (os.path.lexists(dst) and not os.path.lexists(src)):
+            m["state"] = "completed"
+            continue
+
+        if not os.path.lexists(src):
+            print(f"  [Skipped] Source {src.name} does not exist.")
+            m["state"] = "failed"
+            m["error"] = "Source file missing"
+            failed_count += 1
+            continue
+
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if os.path.lexists(dst) and dst != src:
+                stem, ext = split_stem_and_ext(dst.name)
+                counter = 1
+                new_dst = dst
+                while os.path.lexists(new_dst) and new_dst != src:
+                    new_dst = dst.parent / f"{stem}_dup{counter}{ext}"
+                    counter += 1
+                dst = new_dst
+                m["dest"] = str(dst)
+
+            shutil.move(str(src), str(dst))
+            m["state"] = "completed"
+            m.pop("error", None)
+            completed_count += 1
+            print(f"  [Moved] {src.name} -> {dst.parent}/")
+            save_history(batches, history_file=history_file)
+        except (OSError, RuntimeError) as e:
+            print(f"  [Failed] Could not move {src.name}: {e}")
+            m["state"] = "failed"
+            m["error"] = str(e)
+            failed_count += 1
+            save_history(batches, history_file=history_file)
+
+    if failed_count == 0:
+        target_batch["status"] = "completed"
+    else:
+        target_batch["status"] = "partial_completed"
+
+    save_history(batches, history_file=history_file)
+    print(f"\nResume finished: {completed_count} files moved, {failed_count} failed.")
+    return failed_count == 0
+
+
+def dismiss_interrupted_batch(batch_id: str, history_file: Path | None = None) -> bool:
+    """Marks an interrupted batch as dismissed so it stops prompting for recovery."""
+    batches = load_history(history_file=history_file)
+    for b in batches:
+        if b.get("batch_id") == batch_id:
+            b["status"] = "dismissed"
+            save_history(batches, history_file=history_file)
+            print(f"Batch {batch_id} marked as dismissed.")
+            return True
+    print(f"Error: Batch '{batch_id}' not found.")
+    return False
+
+
+def run_startup_recovery(history_file: Path | None = None) -> None:
+    """Checks for interrupted transactions on startup and prompts or warns."""
+    pending = inspect_pending_transactions(history_file=history_file)
+    if not pending:
+        return
+
+    # Non-interactive mode: warn to stderr without blocking or mutating files
+    if not sys.stdin.isatty():
+        for b in pending:
+            s = b.get("disk_summary", {})
+            sys.stderr.write(
+                f"[Laya Startup Alert] Interrupted transaction detected: Batch '{b.get('batch_id')}' "
+                f"({s.get('moved', 0)}/{s.get('total', 0)} files moved on disk). "
+                "Run 'laya recover' or 'laya undo' to resolve.\n"
+            )
+        return
+
+    # Interactive mode: prompt user
+    print("\n=== Laya Crash Recovery Alert ===\n")
+    print(f"Found {len(pending)} interrupted or incomplete transaction(s):\n")
+    for b in pending:
+        s = b.get("disk_summary", {})
+        print(f"  Batch ID: {b.get('batch_id')}")
+        print(f"  Target:   {b.get('target_dir')}")
+        print(f"  Status:   {b.get('status')} ({s.get('moved', 0)} moved on disk, {s.get('unmoved', 0)} unmoved, {s.get('missing', 0)} missing)")
+        print()
+
+    print("Options:")
+    print("  [1] Roll back moved files to original locations")
+    print("  [2] Resume and complete remaining moves")
+    print("  [3] Dismiss alert (retain in history without prompting)")
+    print("  [4] Continue current command")
+
+    try:
+        choice = input("\nSelect option [1-4] (default: 4): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return
+
+    first_batch_id = pending[0].get("batch_id")
+    if choice == "1":
+        rollback_last_batch(batch_id=first_batch_id, history_file=history_file)
+    elif choice == "2":
+        if first_batch_id:
+            resume_interrupted_batch(batch_id=first_batch_id, history_file=history_file)
+    elif choice == "3":
+        if first_batch_id:
+            dismiss_interrupted_batch(batch_id=first_batch_id, history_file=history_file)
+    else:
+        pass
+
+
 def rollback_last_batch(
     batch_id: str | None = None,
     history_file: Path | None = None
 ) -> bool:
     """Reverts the last (or specified) sorting transaction batch.
 
-    Crash-safe and lossless: only removes the batch from history if every move is
-    successfully restored. Retains failed or skipped moves in the journal.
+    Fully idempotent, crash-safe, and lossless:
+    - Assigns distinct rollback transaction ID
+    - Persists each restored file incrementally
+    - Records actual restored_to paths (including collisions)
+    - Recognizes already-restored files on retries
+    - Retains failed and unresolved entries in the journal
+    - Only removes the batch when 100% of moves are confirmed restored
     """
     batches = load_history(history_file=history_file)
     if not batches:
@@ -342,7 +601,8 @@ def rollback_last_batch(
         save_history(batches, history_file=history_file)
         return True
 
-    print(f"\nRolling back batch {target_batch.get('batch_id')} ({len(moves)} files)...")
+    rollback_tx_id = f"rb_{target_batch.get('batch_id')}_{int(time.time() * 1000)}"
+    print(f"\nRolling back batch {target_batch.get('batch_id')} ({len(moves)} files) [tx: {rollback_tx_id}]...")
 
     reverted = 0
     folders_to_clean: set[Path] = set()
@@ -353,6 +613,23 @@ def rollback_last_batch(
         dst = Path(item["dest"])
         is_symlink = item.get("is_symlink", False)
         orig_target = item.get("original_target")
+        restored_to = item.get("restored_to")
+        state = item.get("state", "completed")
+
+        # Skip moves that never actually executed on disk
+        if state == "planned" and not os.path.lexists(dst) and os.path.lexists(src):
+            item["rollback_state"] = "unmoved_original_preserved"
+            item["rollback_tx_id"] = rollback_tx_id
+            continue
+
+        # Check if already restored in previous rollback attempt
+        if item.get("rollback_state") == "restored":
+            check_target = Path(restored_to) if restored_to else src
+            if not os.path.lexists(dst) and os.path.lexists(check_target):
+                print(f"  [Already Restored] {dst.name} -> {check_target.parent}/")
+                reverted += 1
+                folders_to_clean.add(dst.parent)
+                continue
 
         if os.path.lexists(dst):
             try:
@@ -371,19 +648,43 @@ def rollback_last_batch(
                     dst.unlink()
                 else:
                     shutil.move(str(dst), str(final_src))
+
                 print(f"  [Restored] {dst.name} -> {final_src.parent}/")
                 reverted += 1
                 folders_to_clean.add(dst.parent)
+                item["restored_to"] = str(final_src)
+                item["rollback_state"] = "restored"
+                item["rollback_tx_id"] = rollback_tx_id
+                item.pop("last_rollback_error", None)
+
+                save_history(batches, history_file=history_file)
             except (OSError, RuntimeError) as e:
                 print(f"  [Failed] Could not restore {dst.name}: {e}")
                 err_item = dict(item)
+                err_item["rollback_state"] = "failed"
                 err_item["last_rollback_error"] = str(e)
+                err_item["rollback_tx_id"] = rollback_tx_id
                 unresolved_moves.append(err_item)
+                save_history(batches, history_file=history_file)
         else:
-            print(f"  [Skipped] {dst} no longer exists.")
-            err_item = dict(item)
-            err_item["last_rollback_error"] = "Destination file no longer exists"
-            unresolved_moves.append(err_item)
+            # Destination missing on disk. Check if already restored to src or restored_to
+            check_target = Path(restored_to) if restored_to else src
+            if os.path.lexists(check_target):
+                print(f"  [Already Restored] {dst.name} -> {check_target.parent}/")
+                reverted += 1
+                item["rollback_state"] = "restored"
+                item["restored_to"] = str(check_target)
+                item["rollback_tx_id"] = rollback_tx_id
+                item.pop("last_rollback_error", None)
+                save_history(batches, history_file=history_file)
+            else:
+                print(f"  [Skipped] {dst} no longer exists.")
+                err_item = dict(item)
+                err_item["rollback_state"] = "unresolved_missing"
+                err_item["last_rollback_error"] = "Destination file no longer exists"
+                err_item["rollback_tx_id"] = rollback_tx_id
+                unresolved_moves.append(err_item)
+                save_history(batches, history_file=history_file)
 
     # Clean empty category folders if left empty, innermost first
     for folder in sorted(folders_to_clean, key=lambda p: len(str(p)), reverse=True):
@@ -405,7 +706,13 @@ def rollback_last_batch(
     target_batch["moves"] = unresolved_moves
     target_batch["count"] = len(unresolved_moves)
     target_batch["status"] = "partial_rollback"
+    target_batch["rollback_tx_id"] = rollback_tx_id
     save_history(batches, history_file=history_file)
+    print(
+        f"\nRollback partial. Restored {reverted}/{len(moves)} files. "
+        f"{len(unresolved_moves)} unresolved record(s) retained in history."
+    )
+    return False
     print(
         f"\nRollback partial. Restored {reverted}/{len(moves)} files. "
         f"{len(unresolved_moves)} unresolved record(s) retained in history."
@@ -583,6 +890,8 @@ class HeuristicRouter:
 
         if not ext and filename.startswith("."):
             ext = filename.lower()
+        if filename.startswith(".env"):
+            ext = ".env"
 
         is_junk = is_junk_candidate(filename)
 
@@ -782,31 +1091,54 @@ def execute_plan(
     target_dir: str | Path | None = None,
     history_file: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Executes approved PlannedMoves safely with collision handling and transaction recording."""
+    """Executes approved PlannedMoves safely with per-file intent journaling and crash-safe rollback."""
     if batch_id is None:
         batch_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    moved_records: list[dict[str, Any]] = []
 
     # Map source paths to planned/actual destinations for robust symlink resolution
     # Use abspath (not resolve()) to avoid prematurely dereferencing symlinks
     planned_dest_map = {Path(os.path.abspath(move.source)): move.destination for move in planned_moves}
     actual_dest_map: dict[Path, Path] = {}
-
     target_dir_str = str(target_dir) if target_dir else ""
 
-    # Record transaction intent before executing moves
+    # Initialize all planned moves with "planned" intent in journal before any file operation begins
+    initial_moves: list[dict[str, Any]] = []
+    for move in planned_moves:
+        is_symlink = move.source.is_symlink()
+        orig_target = None
+        if is_symlink:
+            try:
+                orig_target = os.readlink(move.source)
+            except OSError:
+                pass
+        initial_moves.append({
+            "source": str(move.source),
+            "dest": str(move.destination),
+            "category": move.category,
+            "confidence": move.confidence,
+            "reason": move.reason,
+            "engine": move.engine,
+            "is_symlink": is_symlink,
+            "original_target": orig_target,
+            "state": "planned",
+        })
+
+    # Record initial transaction intent with all planned moves prior to touching any file on disk
     if target_dir:
         record_batch_moves(
             batch_id=batch_id,
             target_dir=target_dir_str,
-            moves=[],
+            moves=initial_moves,
             status="in_progress",
             planned_count=len(planned_moves),
             history_file=history_file,
         )
 
+    moved_records: list[dict[str, Any]] = [dict(m) for m in initial_moves]
+    idx = 0
+
     try:
-        for move in planned_moves:
+        for idx, move in enumerate(planned_moves):
             src = move.source
             dest = move.destination
             dest_folder = dest.parent
@@ -823,6 +1155,8 @@ def execute_plan(
                 dest = new_dest
 
             actual_dest_map[Path(os.path.abspath(src))] = dest
+            # Update intended destination in journal record before moving
+            moved_records[idx]["dest"] = str(dest)
 
             is_symlink = src.is_symlink()
             original_target = None
@@ -847,16 +1181,8 @@ def execute_plan(
             else:
                 shutil.move(str(src), str(dest))
 
-            moved_records.append({
-                "source": str(src),
-                "dest": str(dest),
-                "category": move.category,
-                "confidence": move.confidence,
-                "reason": move.reason,
-                "engine": move.engine,
-                "is_symlink": is_symlink,
-                "original_target": original_target,
-            })
+            moved_records[idx]["original_target"] = original_target
+            moved_records[idx]["state"] = "completed"
 
             # Incremental journal record after each move
             if target_dir:
@@ -868,8 +1194,11 @@ def execute_plan(
                     planned_count=len(planned_moves),
                     history_file=history_file,
                 )
-    except Exception:
-        # On partial failure midway, preserve already moved records in journal so they can be rolled back
+    except Exception as exc:
+        # Mark interrupted move as failed, retain all planned and completed records in journal
+        if idx < len(moved_records) and moved_records[idx]["state"] != "completed":
+            moved_records[idx]["state"] = "failed"
+            moved_records[idx]["error"] = str(exc)
         if target_dir:
             record_batch_moves(
                 batch_id=batch_id,
@@ -1824,6 +2153,66 @@ def settings_menu(config: dict[str, Any]):
                 continue
 
 
+def recover_subcommand(
+    batch_id: str | None = None,
+    inspect_only: bool = False,
+    do_rollback: bool = False,
+    do_resume: bool = False,
+    do_dismiss: bool = False,
+    json_output: bool = False,
+    history_file: Path | None = None,
+) -> None:
+    """Subcommand handler for 'laya recover'."""
+    inspected = inspect_pending_transactions(history_file=history_file)
+    if not inspected:
+        if json_output:
+            print(json.dumps({"pending_batches": [], "message": "No pending transactions found"}))
+        else:
+            print("No pending or interrupted transactions found.")
+        return
+
+    target_batches = inspected
+    if batch_id:
+        target_batches = [b for b in inspected if b.get("batch_id") == batch_id]
+        if not target_batches:
+            if json_output:
+                print(json.dumps({"error": f"Batch '{batch_id}' not found among pending transactions"}))
+            else:
+                print(f"Error: Batch '{batch_id}' not found among pending transactions.")
+            return
+
+    target_batch = target_batches[0]
+    target_id = target_batch["batch_id"]
+
+    if json_output and (inspect_only or (not do_rollback and not do_resume and not do_dismiss)):
+        print(json.dumps({"pending_batches": target_batches}, indent=2))
+        return
+
+    if inspect_only or (not do_rollback and not do_resume and not do_dismiss):
+        print("\n=== Pending Transaction Inspection ===\n")
+        for b in target_batches:
+            s = b.get("disk_summary", {})
+            print(f"Batch ID: {b.get('batch_id')}")
+            print(f"Target:   {b.get('target_dir')}")
+            print(f"Status:   {b.get('status')}")
+            print(f"Disk Summary: {s.get('moved', 0)} moved, {s.get('unmoved', 0)} unmoved, {s.get('conflict', 0)} conflict, {s.get('missing', 0)} missing\n")
+            print("Moves breakdown:")
+            for m in b.get("moves", []):
+                print(f"  [{m.get('disk_status', 'unknown')}] {Path(m['source']).name} -> {m['dest']}")
+                if m.get("error"):
+                    print(f"      Error: {m['error']}")
+                if m.get("last_rollback_error"):
+                    print(f"      Rollback Error: {m['last_rollback_error']}")
+        return
+
+    if do_rollback:
+        rollback_last_batch(batch_id=target_id, history_file=history_file)
+    elif do_resume:
+        resume_interrupted_batch(batch_id=target_id, history_file=history_file)
+    elif do_dismiss:
+        dismiss_interrupted_batch(batch_id=target_id, history_file=history_file)
+
+
 def self_check() -> bool:
     """Minimal runnable check for Laya organizer and fallback router."""
     router, engine = get_router()
@@ -1904,6 +2293,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg.add_argument("--set-naming", choices=["default", "short"], help="Set folder naming style")
     p_cfg.add_argument("--add-rule", nargs=2, metavar=("EXT", "FOLDER"), help="Add custom extension rule (e.g. --add-rule .torrent Torrents)")
 
+    # recover
+    p_rec = subparsers.add_parser("recover", help="Inspect and recover interrupted transactions")
+    p_rec.add_argument("--batch-id", help="Target specific batch ID (default: most recent interrupted)")
+    p_rec.add_argument("--inspect", action="store_true", help="Inspect disk state of interrupted batches without mutating")
+    p_rec.add_argument("--rollback", action="store_true", help="Roll back moved files to original locations")
+    p_rec.add_argument("--resume", action="store_true", help="Resume and finish remaining planned moves")
+    p_rec.add_argument("--dismiss", action="store_true", help="Dismiss alert and mark batch as dismissed")
+    p_rec.add_argument("--json", action="store_true", help="Output inspection report as JSON")
+
     return parser
 
 
@@ -1911,7 +2309,7 @@ def main():
     parser = build_parser()
 
     argv = list(sys.argv[1:])
-    known_cmds = {"scan", "organize", "undo", "history", "inspect", "duplicates", "config", "-h", "--help", "-v", "--version"}
+    known_cmds = {"scan", "organize", "undo", "history", "inspect", "duplicates", "config", "recover", "-h", "--help", "-v", "--version"}
     root_flags = {"--check", "--undo", "--rollback", "--batch-id", "--history", "--config"}
 
     if argv:
@@ -1920,6 +2318,9 @@ def main():
             argv.insert(0, "organize")
 
     args = parser.parse_args(argv)
+
+    if args.command not in ("recover", "undo") and not args.rollback and not args.check:
+        run_startup_recovery()
 
     if args.check:
         self_check()
@@ -1956,6 +2357,15 @@ def main():
             set_confidence=args.set_confidence,
             set_naming=args.set_naming,
             add_rule=args.add_rule,
+            json_output=args.json,
+        )
+    elif args.command == "recover":
+        recover_subcommand(
+            batch_id=args.batch_id,
+            inspect_only=args.inspect,
+            do_rollback=args.rollback,
+            do_resume=args.resume,
+            do_dismiss=args.dismiss,
             json_output=args.json,
         )
     else:

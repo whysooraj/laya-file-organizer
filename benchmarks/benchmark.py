@@ -385,70 +385,155 @@ def run_benchmark(
 
 
 def get_ground_truth_dataset() -> list[dict[str, str]]:
-    """Curated dataset of 120+ real-world files with verified ground truth categories."""
-    dataset = []
+    """Curated ground-truth evaluation dataset of exactly 100 real-world and edge-case files.
 
-    # Financial
-    for name in ["invoice_acme_2026.pdf", "receipt_uber_trip.pdf", "stripe_payout_march.csv", "w2_tax_statement.pdf", "salary_slip.pdf", "bank_statement_jan.xlsx"]:
-        content = "Invoice total $450.00 tax VAT paid via Chase bank transaction receipt" if "invoice" in name or "receipt" in name else "Payroll salary direct deposit credit balance"
+    Includes challenging edge cases: misleading compound extensions (.pdf.py),
+    hidden dotfiles (.env, .env.production), complex build artifacts (.spec.ts, .d.ts),
+    and diverse content snippets.
+    """
+    dataset: list[dict[str, str]] = []
+
+    # Financial (10 files)
+    financial_files = [
+        ("invoice_acme_2026.pdf", "Invoice total $450.00 tax VAT paid via Chase bank transaction receipt"),
+        ("receipt_uber_trip.pdf", "Uber Technologies Ride Receipt Fare $24.50 paid via card"),
+        ("stripe_payout_march.csv", "Payout ID,Amount,Fee,Currency,Status\npo_123,5000.00,125.00,USD,paid"),
+        ("w2_tax_statement.pdf", "Form W-2 Wage and Tax Statement 2026 Federal Income Tax withheld"),
+        ("salary_slip.pdf", "Monthly Payslip Gross salary $6000.00 direct deposit"),
+        ("bank_statement_jan.xlsx", "Bank Statement Account balance $12,450.00 deposits and withdrawals"),
+        ("expense_report_q1.txt", "Business expense reimbursement request travel meals lodging total $820.00"),
+        ("utility_bill_electric.pdf", "Electric Utility Bill Amount Due: $134.20 Payment Due Date 2026-04-10"),
+        ("tax_return_2025.pdf", "Annual Tax Return filing estimated tax payments refund due"),
+        ("vendor_payment_remittance.txt", "Payment remittance advice vendor invoice settlement total $3,400.00 paid"),
+    ]
+    for name, content in financial_files:
         dataset.append({"name": name, "content": content, "category": "Financial"})
 
-    # Code and Scripts
-    for name in ["server.py", "app.tsx", "engine.rs", "handler.go", "schema.sql", "deploy.sh", "style.css", "main.cpp", "index.d.ts", "test_runner.spec.ts"]:
-        content = "import os\ndef handle(): return {'status': 200}"
-        dataset.append({"name": name, "content": content, "category": "Code_and_Scripts"})
-
-    # Data and Configs
-    for name in ["config.json", "settings.yaml", "dataset.csv", "runtime.toml", ".env", "schema.xml", "data.tsv", "k8s_manifest.yml"]:
-        content = '{"api_key": "xyz", "workers": 4, "enabled": true}'
-        dataset.append({"name": name, "content": content, "category": "Data_and_Configs"})
-
-    # Logs and Diagnostics
-    for name in ["error.log", "crash_core.dmp", "syslog_20260315.log", "debug_trace.txt", "stackdump.dmp", "build_output.log"]:
-        content = "2026-03-15 ERROR Traceback (most recent call last): File 'server.py' line 42 NullPointer"
-        dataset.append({"name": name, "content": content, "category": "Logs_and_Diagnostics"})
-
-    # Images and Graphics
-    for name in ["screenshot_2026.png", "avatar.jpg", "logo.svg", "banner.webp", "icon.ico", "design.psd", "diagram.gif"]:
-        dataset.append({"name": name, "content": "", "category": "Images_and_Graphics"})
-
-    # Audio and Music
-    for name in ["podcast_ep42.mp3", "master_track.flac", "voice_memo.m4a", "sound_fx.wav", "ambient.ogg", "song.aac"]:
-        dataset.append({"name": name, "content": "", "category": "Audio_and_Music"})
-
-    # Video and Movies
-    for name in ["screencast_demo.mp4", "movie_clip.mkv", "presentation.mov", "recording.webm", "tutorial.avi"]:
-        dataset.append({"name": name, "content": "", "category": "Video_and_Movies"})
-
-    # Archives and Installers
-    for name in ["release_v1.0.tar.gz", "setup_windows.exe", "backup_2026.zip", "dist_package.tar.xz", "node_modules.tar.zst", "installer.dmg", "package.deb", "image.iso"]:
-        dataset.append({"name": name, "content": "", "category": "Archives_and_Installers"})
-
-    # Books and Manuals
-    for name in ["rust_handbook.epub", "user_guide.pdf", "instruction_manual.pdf", "oreilly_python.mobi", "whitepaper.pdf"]:
-        content = "Chapter 1: Getting Started with Distributed Systems. User Manual and Technical Specification."
-        dataset.append({"name": name, "content": content, "category": "Books_and_Manuals"})
-
-    # Design and 3D
-    for name in ["robot_arm.stl", "character_rig.blend", "mechanical_gear.step", "blueprint.dwg", "model.obj"]:
-        dataset.append({"name": name, "content": "", "category": "Design_and_3D"})
-
-    # Documents
-    for name in ["resume_senior_dev.pdf", "employment_contract.docx", "meeting_minutes.md", "research_paper.pdf", "project_brief.txt"]:
-        content = "Experience: Senior Software Engineer at TechCorp. Responsible for distributed systems architecture."
+    # Documents (10 files)
+    doc_files = [
+        ("resume_senior_dev.pdf", "Curriculum Vitae Senior Software Engineer 8 years distributed systems"),
+        ("employment_contract.docx", "Standard Employment Agreement terms of engagement confidentiality"),
+        ("meeting_minutes.md", "Meeting Notes: Weekly team sync discussion on roadmap and milestones"),
+        ("research_paper.pdf", "Abstract: Distributed consensus algorithms in peer-to-peer decentralized networks"),
+        ("project_brief.txt", "Project requirements overview goals deliverables schedule"),
+        ("cover_letter.pdf", "Application for Principal Engineer position enthusiasm for infrastructure"),
+        ("nda_mutual.docx", "Non-Disclosure Agreement between parties regarding proprietary disclosures"),
+        ("letter_of_recommendation.pdf", "Recommendation letter candidate demonstrated leadership"),
+        ("whitepaper_ai.pdf", "Whitepaper on next-generation artificial intelligence evaluation standards"),
+        ("annual_report_draft.odt", "Company progress operations and corporate strategy overview"),
+    ]
+    for name, content in doc_files:
         dataset.append({"name": name, "content": content, "category": "Documents"})
 
-    # Junk Candidates
-    for name in ["temp_download.tmp", "chrome_setup.crdownload", "part_file.part", "thumbs.db", "~$financial_draft.docx", ".DS_Store"]:
+    # Code and Scripts (12 files)
+    code_files = [
+        ("server.py", "import os\ndef handle(): return {'status': 200}"),
+        ("app.tsx", "export const App = () => <div>Hello World</div>;"),
+        ("engine.rs", "pub struct Engine { pub id: u64 }"),
+        ("handler.go", "package main\nimport \"net/http\"\nfunc Handle(w http.ResponseWriter, r *http.Request) {}"),
+        ("schema.sql", "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT);"),
+        ("deploy.sh", "#!/usr/bin/env bash\necho 'deploying...'"),
+        ("style.css", "body { margin: 0; padding: 0; box-sizing: border-box; }"),
+        ("main.cpp", "#include <iostream>\nint main() { return 0; }"),
+        ("index.d.ts", "export declare interface Config { timeout: number; }"),
+        ("test_runner.spec.ts", "describe('suite', () => { it('runs', () => {}); });"),
+        ("auth_controller.test.js", "test('authenticates user', () => expect(true).toBe(true));"),
+        ("data_analysis.pdf.py", "import pandas as pd\ndf = pd.read_csv('data.csv')\nprint(df.head())"),
+    ]
+    for name, content in code_files:
+        dataset.append({"name": name, "content": content, "category": "Code_and_Scripts"})
+
+    # Data and Configs (10 files)
+    data_files = [
+        ("config.json", '{"api_key": "xyz", "workers": 4, "enabled": true}'),
+        ("settings.yaml", "server:\n  host: 0.0.0.0\n  port: 8080"),
+        ("dataset.csv", "id,name,value\n1,alpha,42"),
+        ("runtime.toml", "[runtime]\nthreads = 8\nmode = 'release'"),
+        (".env", "DATABASE_URL=postgres://localhost:5432/db"),
+        (".env.production", "PORT=8080\nNODE_ENV=production"),
+        (".prettierrc.json", '{"semi": true, "singleQuote": true}'),
+        ("schema.xml", "<config><setting name='debug' value='false'/></config>"),
+        ("data.tsv", "col1\tcol2\nval1\tval2"),
+        ("k8s_manifest.yml", "apiVersion: v1\nkind: Service\nmetadata:\n  name: app-svc"),
+    ]
+    for name, content in data_files:
+        dataset.append({"name": name, "content": content, "category": "Data_and_Configs"})
+
+    # Logs and Diagnostics (8 files)
+    log_files = [
+        ("error.log", "2026-03-15 ERROR Traceback (most recent call last): NullPointer"),
+        ("crash_core.dmp", ""),
+        ("syslog_20260315.log", "Mar 15 10:14:02 systemd[1]: Started Service."),
+        ("debug_trace.txt", "2026-03-15 ERROR Traceback (most recent call last): line 42 exception: critical"),
+        ("stackdump.dmp", ""),
+        ("build_output.log", "BUILD SUCCESSFUL in 12s"),
+        ("nginx_access.log", "127.0.0.1 - - [15/Mar/2026:10:14:02 +0000] 'GET / HTTP/1.1' 200"),
+        ("panic_report.trace", "thread 'main' panicked at 'explicit panic', src/main.rs:10"),
+    ]
+    for name, content in log_files:
+        dataset.append({"name": name, "content": content, "category": "Logs_and_Diagnostics"})
+
+    # Images and Graphics (10 files)
+    img_files = [
+        "screenshot_2026.png", "avatar.jpg", "logo.svg", "banner.webp", "icon.ico",
+        "design.psd", "diagram.gif", "illustration.ai", "hero_background.jpeg", "photo_sample.tiff"
+    ]
+    for name in img_files:
+        dataset.append({"name": name, "content": "", "category": "Images_and_Graphics"})
+
+    # Audio and Music (8 files)
+    audio_files = [
+        "podcast_ep42.mp3", "master_track.flac", "voice_memo.m4a", "sound_fx.wav",
+        "ambient.ogg", "song.aac", "interview_recording.wma", "audio_book_sample.opus"
+    ]
+    for name in audio_files:
+        dataset.append({"name": name, "content": "", "category": "Audio_and_Music"})
+
+    # Video and Movies (7 files)
+    video_files = [
+        "screencast_demo.mp4", "movie_clip.mkv", "presentation.mov", "recording.webm",
+        "tutorial.avi", "gameplay_stream.flv", "product_intro.m4v"
+    ]
+    for name in video_files:
+        dataset.append({"name": name, "content": "", "category": "Video_and_Movies"})
+
+    # Archives and Installers (10 files)
+    archive_files = [
+        "release_v1.0.tar.gz", "backup_db.tar.xz", "linux_kernel.tar.bz2", "data_pack.tar.zst",
+        "source_code.tar.br", "setup_windows.exe", "backup_2026.zip", "installer.dmg",
+        "package.deb", "linux_install.iso"
+    ]
+    for name in archive_files:
+        dataset.append({"name": name, "content": "", "category": "Archives_and_Installers"})
+
+    # Books and Manuals (5 files)
+    book_files = [
+        ("rust_handbook.epub", ""),
+        ("oreilly_python.mobi", ""),
+        ("kindle_guide.azw3", ""),
+        ("user_manual.pdf", "User Manual Operation Guide and Troubleshooting procedures"),
+        ("equipment_spec.pdf", "Technical Specification and Architecture Handbook for Field Units"),
+    ]
+    for name, content in book_files:
+        dataset.append({"name": name, "content": content, "category": "Books_and_Manuals"})
+
+    # Design and 3D (5 files)
+    design_files = ["robot_arm.stl", "character_rig.blend", "mechanical_gear.step", "blueprint.dwg", "model.obj"]
+    for name in design_files:
+        dataset.append({"name": name, "content": "", "category": "Design_and_3D"})
+
+    # Junk Candidates (5 files)
+    junk_files = ["temporary_dump.tmp", "download_package.crdownload", "partial_chunk.part", "thumbs.db", "~$financial_draft.docx"]
+    for name in junk_files:
         dataset.append({"name": name, "content": "", "category": "Junk_Candidates"})
 
     return dataset
 
 
-def run_accuracy_benchmark() -> dict[str, Any]:
+def run_accuracy_benchmark(use_neural: bool = False) -> dict[str, Any]:
     """Evaluates classification accuracy on the curated real-world ground truth dataset."""
     dataset = get_ground_truth_dataset()
-    router = HeuristicRouter()
+    router, engine_name = get_router(force_fallback=not use_neural)
     questions = get_laya_questions()
 
     correct = 0
@@ -491,6 +576,7 @@ def run_accuracy_benchmark() -> dict[str, Any]:
     accuracy_pct = (correct / total * 100.0) if total > 0 else 0.0
 
     return {
+        "engine_name": engine_name,
         "total_evaluated": total,
         "correct": correct,
         "accuracy_pct": round(accuracy_pct, 2),
@@ -737,8 +823,9 @@ def print_accuracy_table(report: dict[str, Any]) -> None:
     """Prints a structured accuracy breakdown across categories."""
     tot = report["total_evaluated"]
     acc = report["accuracy_pct"]
+    engine = report.get("engine_name", "heuristic").upper()
     print("\n" + "=" * 94)
-    print(f"              LAYA CLASSIFICATION ACCURACY BENCHMARK (N={tot} Curated Files)")
+    print(f"       LAYA CLASSIFICATION EVALUATION: {engine} (N={tot} Curated Ground-Truth Files)")
     print("=" * 94)
     print(f" Overall Accuracy: {acc}% ({report['correct']}/{tot} correct classifications)")
     print("-" * 94)
@@ -757,7 +844,9 @@ def print_accuracy_table(report: dict[str, Any]) -> None:
         for m in report["mismatches"]:
             print(f"  * {m['file']}: expected {m['expected']}, got {m['predicted']} (conf {m['confidence']})")
     else:
-        print("Verdict: 100% accuracy on curated multi-category ground truth dataset.")
+        print("Coverage: 100% deterministic rule coverage on curated multi-category ground truth dataset.")
+        print("Note: 100% test accuracy confirms complete rule coverage for defined extensions and keywords;")
+        print("      it does not imply 100% open-world generalization. Latency and pipeline metrics benchmarked separately.")
     print("=" * 94 + "\n")
 
 
@@ -773,6 +862,8 @@ def main():
     parser.add_argument("--skip-neural", action="store_true", help="Skip the neural classifier evaluation")
     parser.add_argument("--neural-samples", type=int, default=25, help="Sample count for neural classifier (default: 25)")
     parser.add_argument("--all-neural", action="store_true", help="Run neural classifier on all samples")
+    parser.add_argument("--heuristic", action="store_true", help="Evaluate heuristic baseline for accuracy")
+    parser.add_argument("--neural", action="store_true", help="Evaluate neural engine for accuracy")
 
     args = parser.parse_args()
 
@@ -800,7 +891,7 @@ def main():
         full_report["pipeline_benchmark"] = pipe_results
 
     if run_acc:
-        acc_results = run_accuracy_benchmark()
+        acc_results = run_accuracy_benchmark(use_neural=args.neural and not args.heuristic)
         full_report["accuracy_benchmark"] = acc_results
 
     if args.output:
