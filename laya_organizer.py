@@ -5,12 +5,11 @@ Organizes files into smart categories using Laya sub-35ms decision engine.
 Automatically creates target folders and moves files safely.
 """
 
-import os
-import sys
-import shutil
 import argparse
+import shutil
+import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 ACTIVE_DOWNLOAD_EXTS = ('.crdownload', '.part', '.tmp', '.download', '.partial')
 
@@ -35,7 +34,7 @@ def extract_file_sample(file_path: Path, max_chars: int = 1000) -> str:
             pass
     return info
 
-def get_laya_questions() -> Dict[str, Any]:
+def get_laya_questions() -> dict[str, Any]:
     return {
         "category": {
             "type": "choice",
@@ -71,7 +70,7 @@ def organize_directory(target_dir: str, output_dir: str = None, dry_run: bool = 
         
     dest_base = Path(output_dir).expanduser().resolve() if output_dir else target_path
     
-    print(f"Loading Laya Decision Engine...")
+    print("Loading Laya Decision Engine...")
     router = Router()
     questions = get_laya_questions()
     

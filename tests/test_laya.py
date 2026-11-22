@@ -1,12 +1,12 @@
 import sys
-from pathlib import Path
 import tempfile
-import pytest
+from pathlib import Path
 
 # Ensure parent directory is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from laya_organizer import extract_file_sample, get_laya_questions, ACTIVE_DOWNLOAD_EXTS
+from laya_organizer import ACTIVE_DOWNLOAD_EXTS, extract_file_sample, get_laya_questions
+
 
 def test_active_download_exts():
     assert ".crdownload" in ACTIVE_DOWNLOAD_EXTS
